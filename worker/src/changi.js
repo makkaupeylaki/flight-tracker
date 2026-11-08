@@ -22,8 +22,10 @@ const HEADERS = {
   Accept: "application/json",
 };
 
-// Terminals this app shows.
-export const TERMINALS = ["1", "2", "3"];
+// Terminals this app shows. The feed labels them "1"-"4". Flights whose
+// terminal isn't assigned yet (an empty string, common for later arrivals)
+// are kept with t: null so they still appear under "All".
+export const TERMINALS = ["1", "2", "3", "4"];
 
 // The API caps page_size at ~512, and one day is ~500 flights per direction,
 // so a full day is normally 1-2 pages. MAX_PAGES guards the 50-subrequest
@@ -120,7 +122,7 @@ function hhmm(ts) {
  * {
  *   fn: "SQ828", al: "SQ", an: "Singapore Airlines", logo: url|null,
  *   ap: "PVG", city: "Shanghai", cc: "CN",
- *   t: "2", d: "2026-11-08", st: "07:25",
+ *   t: "2"|null (null = terminal not assigned yet), d: "2026-11-08", st: "07:25",
  *   et: "07:40"|null, at: "07:38"|null, ets: "2026-11-08 07:40"|null, ats: ...,
  *   gate: "C22"|null, row: "3"|null, belt: "17"|null, ac: "A359"|null,
  *   raw: "Departed", status: "Departed", belt_status: null
@@ -139,7 +141,8 @@ export function normalise(f) {
     ap: nz(f.airport) || nz(ap.code),
     city: nz(ap.name) || nz(f.airport),
     cc: nz(ap.country_code),
-    t: nz(f.terminal),
+    t: TERMINALS.includes(String(f.terminal ?? "").trim()) ? String(f.terminal).trim() : null,
+    t_raw: nz(f.terminal),
     d: nz(f.scheduled_date),
     st: nz(f.scheduled_time),
     et: hhmm(f.estimated_timestamp),
@@ -160,7 +163,9 @@ function prepare(raw) {
   const seen = new Set();
   return raw
     .map(normalise)
-    .filter((f) => f.fn && TERMINALS.includes(f.t))
+    // Keep T1-T4 and unassigned (t: null); drop anything else the feed invents.
+    .filter((f) => f.fn && (f.t !== null || !f.t_raw))
+    .map(({ t_raw, ...f }) => f)
     .filter((f) => {
       const k = `${f.fn}|${f.d}|${f.st}`;
       if (seen.has(k)) return false;
@@ -170,7 +175,7 @@ function prepare(raw) {
     .sort((a, b) => (a.st || "").localeCompare(b.st || "") || a.fn.localeCompare(b.fn));
 }
 
-/** Fetch the full board (terminals 1-3) for a date. Throws on upstream failure. */
+/** Fetch the full board (terminals 1-4 plus unassigned) for a date. Throws on upstream failure. */
 export async function fetchBoard(date) {
   const [dep, arr] = await Promise.all([fetchDirection("DEP", date), fetchDirection("ARR", date)]);
   if (dep.length === 0 && arr.length === 0) throw new Error("Changi API returned no flights");

@@ -1,6 +1,6 @@
 # Changi Board
 
-A minimalist live flight board and aircraft tracker for Singapore Changi Airport (SIN), terminals 1–3.
+A minimalist live flight board and aircraft tracker for Singapore Changi Airport (SIN), terminals 1–4. Flights whose terminal isn't assigned yet show as "TBC".
 It runs entirely on the Cloudflare free tier:
 
 ```

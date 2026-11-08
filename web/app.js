@@ -77,6 +77,11 @@ function statusClass(f) {
 }
 const isFinished = (f) => /depart|landed|arrived|cancel/i.test(`${f.raw} ${f.status}`);
 
+// Terminals: "1"-"4", or null when the feed hasn't assigned one yet.
+const termLabel = (t) => (t ? `T${t}` : "TBC");
+const termClass = (t) => (t ? `t${t}` : "tbc");
+const flightKey = (f) => `${f.fn}|${f.st}`;
+
 // ================================================================ state
 
 const state = {
@@ -147,12 +152,13 @@ function detailHTML(f) {
     ${kv("Estimated", time(f.et, f.ets) || "—")}
     ${kv("Actual", time(f.at, f.ats) || "—")}
     ${kv("Aircraft", esc(f.ac) || "—")}
-    ${kv("Terminal", `T${esc(f.t)}`)}
-  </dl>`;
+    ${kv("Terminal", f.t ? `<span class="${termClass(f.t)}">T${esc(f.t)}</span>` : "Not assigned yet")}
+  </dl>
+  ${state.day === 0 ? `<div class="f-actions"><button class="track-btn" type="button" data-track="${esc(flightKey(f))}">Track on map</button></div>` : ""}`;
 }
 
 function rowHTML(f) {
-  const key = `${f.fn}|${f.st}`;
+  const key = flightKey(f);
   const open = state.open.has(key);
   const changed = f.et && f.et !== f.st && !isFinished(f);
   return `<div class="flight${open ? " open" : ""}" data-key="${esc(key)}">
@@ -160,7 +166,7 @@ function rowHTML(f) {
       <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(changed ? f.et : f.st)}</span>
       <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span><span class="f-al">${esc(f.an || "")}</span></span>
       <span class="f-city">${esc(f.city || f.ap)}</span>
-      <span class="f-term">T${esc(f.t)}</span>
+      <span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>
       <span class="pill ${statusClass(f)}">${esc(f.status)}</span>
     </button>
     ${open ? detailHTML(f) : ""}
@@ -173,6 +179,14 @@ function renderUpdated(data) {
   const t = fmtSGT.format(new Date(data.updatedAt));
   const stale = data.stale || state.error;
   el.innerHTML = `Last updated ${esc(t)} SGT${stale ? ` · <span class="stale" title="${esc(data.error || state.error || "")}">data may be stale</span>` : ""}`;
+}
+
+/** Today's finished flights older than the grace period are tucked away. */
+function isEarlier(f) {
+  if (!isFinished(f)) return false;
+  const ts = f.ats || f.ets;
+  const m = ts ? sgtMinutes(ts.slice(0, 10), ts.slice(11, 16)) : sgtMinutes(f.d, f.st);
+  return m !== null && m < Date.now() / 60e3 - EARLIER_GRACE_MIN;
 }
 
 function renderBoard() {
@@ -192,12 +206,7 @@ function renderBoard() {
   let list = filteredFlights(data);
   let hidden = 0;
   if (state.day === 0 && !state.q && !state.showEarlier) {
-    const cutoff = Date.now() / 60e3 - EARLIER_GRACE_MIN;
-    const keep = list.filter((f) => {
-      const ts = f.ats || f.ets;
-      const m = ts ? sgtMinutes(ts.slice(0, 10), ts.slice(11, 16)) : sgtMinutes(f.d, f.st);
-      return !(isFinished(f) && m !== null && m < cutoff);
-    });
+    const keep = list.filter((f) => !isEarlier(f));
     hidden = list.length - keep.length;
     list = keep;
   }
@@ -237,6 +246,8 @@ function bindBoard() {
   $("#board").addEventListener("click", (e) => {
     const act = e.target.closest("[data-act]");
     if (act) { state.showEarlier = act.dataset.act === "earlier"; renderBoard(); return; }
+    const track = e.target.closest("[data-track]");
+    if (track) { trackFlight(state.dir, track.dataset.track); return; }
     const row = e.target.closest(".flight");
     if (!row) return;
     const k = row.dataset.key;
@@ -255,6 +266,8 @@ const tracker = {
   selected: null,
   timer: null,
   index: null, // matching index built from today's board
+  focus: null, // board flight the user asked to track: { ...flight, dir, checked }
+  cardFlight: null, // board flight shown on the card, for "View on board"
 };
 
 const PLANE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.8 0 1.3.8 1.3 1.9V9l7.7 4.4v1.9l-7.7-2.4v4.6l2.1 1.6V21L12 20.1 8.6 21v-1.9l2.1-1.6v-4.6L3 15.3v-1.9L10.7 9V3.9C10.7 2.8 11.2 2 12 2z"/></svg>`;
@@ -273,7 +286,7 @@ function onTodayBoard() {
     }
   }
   tracker.index = { byExact, byNum };
-  if (tracker.selected) renderCard();
+  if (tracker.selected || tracker.focus) renderCard();
 }
 
 function flightTimeMin(f) {
@@ -304,6 +317,58 @@ function matchFlight(cs) {
   return best && best.d < 3 * 60 ? best.f : null;
 }
 
+const sameFlight = (a, b) => Boolean(a && b && a.dir === b.dir && a.fn === b.fn && a.st === b.st);
+
+function findTodayFlight(dir, key) {
+  const data = state.boards.get(sgtDate(0));
+  return ((data && data[dir]) || []).find((f) => flightKey(f) === key) || null;
+}
+
+/** Board -> tracker: open the map on this flight's plane, or explain why it isn't there. */
+function trackFlight(dir, key) {
+  const f = findTodayFlight(dir, key);
+  if (!f) return;
+  if (tracker.selected) select(null);
+  tracker.focus = { ...f, dir, checked: false };
+  show("tracker");
+  renderCard();
+  resolveFocus();
+}
+
+/** If the focused flight's plane is on the map, select it and centre on it. */
+function resolveFocus() {
+  const focus = tracker.focus;
+  if (!focus || !tracker.map) return;
+  for (const [hex, entry] of tracker.markers) {
+    if (entry.lost || !sameFlight(matchFlight(entry.ac.cs), focus)) continue;
+    tracker.focus = null;
+    select(hex);
+    tracker.map.setView([entry.ac.lat, entry.ac.lon], Math.max(tracker.map.getZoom(), 11));
+    return;
+  }
+}
+
+/** Tracker -> board: show the flight's row, expanded, on today's board. */
+function viewOnBoard(f) {
+  const key = flightKey(f);
+  state.dir = f.dir; store.set("dir", state.dir);
+  state.day = 0;
+  state.q = ""; $("#search").value = "";
+  if (state.term !== "all" && state.term !== f.t) { state.term = "all"; store.set("term", state.term); }
+  state.open = new Set([key]);
+  if (isEarlier(f)) state.showEarlier = true;
+  setPressed("[data-dir]", "dir", state.dir);
+  setPressed("[data-day]", "day", state.day);
+  setPressed("[data-term]", "term", state.term);
+  show("board");
+  renderBoard();
+  const row = $$(".flight").find((el) => el.dataset.key === key);
+  if (row) {
+    row.scrollIntoView({ block: "center" });
+    row.querySelector(".f-row").focus({ preventScroll: true });
+  }
+}
+
 function initMap() {
   if (tracker.map || !window.L) return;
   const map = L.map("map", { center: CHANGI, zoom: 10, zoomControl: true, attributionControl: true });
@@ -315,7 +380,7 @@ function initMap() {
     icon: L.divIcon({ className: "", html: '<div class="home-dot" title="Singapore Changi (SIN)"></div>', iconSize: [12, 12] }),
     interactive: false, keyboard: false,
   }).addTo(map);
-  map.on("click", () => select(null));
+  map.on("click", () => { if (tracker.selected || tracker.focus) select(null); });
   tracker.map = map;
 }
 
@@ -349,6 +414,7 @@ async function loadTraffic() {
   } catch (e) {
     note.hidden = false;
     note.textContent = "Live positions unavailable";
+    if (tracker.focus) { tracker.focus.checked = true; tracker.focus.failed = true; renderCard(); }
   }
 }
 
@@ -383,10 +449,16 @@ function applyTraffic(list) {
     entry.marker.remove();
     tracker.markers.delete(hex);
   }
-  if (tracker.selected) renderCard();
+  if (tracker.focus) {
+    tracker.focus.checked = true;
+    tracker.focus.failed = false;
+    resolveFocus(); // also picks the plane up later, e.g. once it takes off
+  }
+  if (tracker.selected || tracker.focus) renderCard();
 }
 
 function select(hex) {
+  tracker.focus = null;
   const prev = tracker.selected;
   tracker.selected = hex;
   for (const h of [prev, hex]) {
@@ -398,10 +470,50 @@ function select(hex) {
   renderCard();
 }
 
+function routeHTML(f) {
+  const from = f.dir === "dep" ? "Singapore" : f.city || f.ap;
+  const to = f.dir === "dep" ? f.city || f.ap : "Singapore";
+  const time = f.dir === "dep" ? "Departs" : "Arrives";
+  return `<p class="c-route">${esc(from)} → ${esc(to)}</p>
+    <p class="c-route"><small>${esc(f.fn)} · ${esc(f.an || f.al)} · ${time} ${esc(f.et || f.st)} · ${esc(f.status)}</small></p>`;
+}
+
+/** Friendly explanation when a tracked flight has no live position. */
+function notLiveMessage(f) {
+  const fn = `<strong>${esc(f.fn)}</strong>`;
+  if (!f.checked) return `Looking for ${fn} on the map…`;
+  if (f.failed) return `Live positions are unavailable right now, so ${fn} can't be shown. Try again in a minute.`;
+  const s = `${f.raw} ${f.status}`.toLowerCase();
+  if (/cancel/.test(s)) return `${fn} is cancelled.`;
+  if (f.dir === "dep" && /depart/.test(s)) return `${fn} has departed and is now beyond the map's range.`;
+  if (f.dir === "arr" && /landed|arrived/.test(s)) return `${fn} has landed and is no longer broadcasting its position.`;
+  if (f.dir === "dep") {
+    return `${fn} isn't airborne yet. It's due to depart at ${esc(f.et || f.st)}${f.gate ? ` from gate ${esc(f.gate)}` : ""}. It will appear here once it's airborne.`;
+  }
+  return `${fn} isn't within range of Changi yet. It's due to land at ${esc(f.et || f.st)} and will appear here once it's close.`;
+}
+
 function renderCard() {
   const card = $("#card");
   const entry = tracker.selected && tracker.markers.get(tracker.selected);
+  const boardLink = '<button class="c-link" type="button" data-board>View on board →</button>';
+  if (!entry && tracker.focus) {
+    const f = tracker.focus;
+    tracker.cardFlight = f;
+    $("#card-body").innerHTML = `
+      <div class="c-head">
+        <span class="c-cs">${esc(f.fn)}</span>
+        <span class="c-type">${esc([f.an || f.al, f.ac].filter(Boolean).join(" · "))}</span>
+      </div>
+      ${routeHTML(f)}
+      <p class="c-msg">${notLiveMessage(f)}</p>
+      ${boardLink}`;
+    card.classList.add("show");
+    card.setAttribute("aria-hidden", "false");
+    return;
+  }
   if (!entry) {
+    tracker.cardFlight = null;
     card.classList.remove("show");
     card.setAttribute("aria-hidden", "true");
     return;
@@ -412,14 +524,8 @@ function renderCard() {
   const alt = ac.gnd ? "Ground" : ac.alt != null ? `${Math.round(ac.alt).toLocaleString("en-US")} ft` : "—";
   const spd = ac.gs != null ? `${Math.round(ac.gs)} kt` : "—";
 
-  let route = "";
-  if (f) {
-    const from = f.dir === "dep" ? "Singapore" : f.city || f.ap;
-    const to = f.dir === "dep" ? f.city || f.ap : "Singapore";
-    const time = f.dir === "dep" ? "Departs" : "Arrives";
-    route = `<p class="c-route">${esc(from)} → ${esc(to)}</p>
-      <p class="c-route"><small>${esc(f.fn)} · ${esc(f.an || f.al)} · ${time} ${esc(f.st)} · ${esc(f.status)}</small></p>`;
-  }
+  tracker.cardFlight = f;
+  const route = f ? routeHTML(f) : "";
   $("#card-body").innerHTML = `
     <div class="c-head">
       <span class="c-cs">${esc(ac.cs || ac.hex.toUpperCase())}</span>
@@ -431,7 +537,8 @@ function renderCard() {
       <div class="kv"><dt>Speed</dt><dd>${esc(spd)}</dd></div>
       <div class="kv"><dt>From SIN</dt><dd>${km.toFixed(1)} km</dd></div>
     </dl>
-    ${entry.lost ? `<p class="c-lost">Signal lost — last known position.</p>` : ""}`;
+    ${entry.lost ? `<p class="c-lost">Signal lost — last known position.</p>` : ""}
+    ${f ? boardLink : ""}`;
   card.classList.add("show");
   card.setAttribute("aria-hidden", "false");
 }
@@ -463,7 +570,10 @@ function init() {
   bindBoard();
   $$(".tab").forEach((t) => t.addEventListener("click", () => show(t.dataset.view)));
   $(".card-close").addEventListener("click", () => select(null));
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && tracker.selected) select(null); });
+  $("#card-body").addEventListener("click", (e) => {
+    if (e.target.closest("[data-board]") && tracker.cardFlight) viewOnBoard(tracker.cardFlight);
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && (tracker.selected || tracker.focus)) select(null); });
 
   loadBoard(currentDate());
   setInterval(() => {

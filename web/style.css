@@ -17,6 +17,13 @@
   --bad: #ff5a5f;
   --bad-bg: rgba(255, 90, 95, 0.14);
 
+  /* Terminal colours: distinct hues, all >= 7:1 on --bg, kept clear of the
+     status colours (green/amber/grey/red) and the yellow accent. */
+  --t1: #6cb6ff; /* blue */
+  --t2: #c4a2ff; /* violet */
+  --t3: #ff8fbd; /* pink */
+  --t4: #4fd8c8; /* teal */
+
   --radius: 10px;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -91,6 +98,14 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   padding: 4px 12px; font-size: 13px; color: var(--muted);
 }
 .chips button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.chips button[data-term="1"] { --tc: var(--t1); }
+.chips button[data-term="2"] { --tc: var(--t2); }
+.chips button[data-term="3"] { --tc: var(--t3); }
+.chips button[data-term="4"] { --tc: var(--t4); }
+.chips button[data-term]:not([data-term="all"]) { color: var(--tc); }
+.chips button[data-term]:not([data-term="all"])[aria-pressed="true"] {
+  border-color: var(--tc); color: var(--bg); background: var(--tc); font-weight: 600;
+}
 
 .updated { margin: 0; color: var(--faint); font-size: 12px; text-align: right; }
 .updated .stale { color: var(--warn); }
@@ -122,7 +137,12 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .f-fn { font-family: var(--mono); font-weight: 600; font-size: 14px; white-space: nowrap; }
 .f-al { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .f-city { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.f-term { color: var(--muted); font-family: var(--mono); font-size: 13px; text-align: center; }
+.f-term { color: var(--muted); font-family: var(--mono); font-size: 13px; font-weight: 600; text-align: center; white-space: nowrap; }
+.t1 { color: var(--t1); }
+.t2 { color: var(--t2); }
+.t3 { color: var(--t3); }
+.t4 { color: var(--t4); }
+.f-term.tbc { color: var(--faint); font-weight: 400; font-size: 11px; }
 
 .pill {
   justify-self: end; max-width: 8.5em;
@@ -139,6 +159,10 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   margin: 0; padding: 4px 16px 16px calc(16px + 3.1em + 10px);
   background: var(--surface);
 }
+.f-actions {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 0 16px 16px calc(16px + 3.1em + 10px); background: var(--surface);
+}
 .kv { min-width: 0; }
 .kv dt { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; }
 .kv dd { margin: 2px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -149,9 +173,17 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   .f-flight { gap: 5px; }
   .f-al { font-size: 12px; }
   .pill { max-width: 6.8em; font-size: 11px; padding: 2px 7px; }
-  .f-detail { padding-left: 16px; }
+  .f-detail, .f-actions { padding-left: 16px; }
+  .chips { gap: 5px; }
+  .chips button { padding: 4px 10px; }
   .seg button { padding: 6px 10px; }
 }
+
+.track-btn {
+  border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600;
+}
+.track-btn:hover { background: rgba(255, 210, 63, 0.1); }
 
 .foot {
   margin-top: auto; padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
@@ -202,6 +234,13 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .c-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 0; }
 .c-stats .kv dd { font-size: 15px; }
 .c-lost { color: var(--warn); font-size: 12px; margin-top: 8px; }
+.c-msg { margin: 8px 0 0; color: var(--muted); }
+.c-msg strong { color: var(--text); font-weight: 600; }
+.c-link {
+  display: inline-block; margin-top: 12px; padding: 0; border: 0; background: none;
+  color: var(--accent); font-size: 14px; font-weight: 600; text-decoration: none;
+}
+.c-link:hover { text-decoration: underline; }
 
 @media (prefers-reduced-motion: reduce) {
   .card, .plane svg { transition: none; }

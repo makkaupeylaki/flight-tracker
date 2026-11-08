@@ -44,16 +44,21 @@ test("addDays crosses month boundaries", () => {
   assert.equal(addDays("2026-01-01", -1), "2025-12-31");
 });
 
-test("cron writes KV only when the board changes, and drops T4 + other dates", async () => {
+test("cron writes KV only when the board changes; keeps T4 and unassigned, drops unknown terminals and other dates", async () => {
   const env = { BOARD_KV: makeKV() };
   const ctx = makeCtx();
-  mockChangi([flight("SQ1", "1"), flight("SQ4", "4"), flight("SQ9", "2", "Scheduled", addDays(today, -1))]);
+  mockChangi([
+    flight("SQ1", "1"), flight("SQ4", "4"), flight("SQ5", ""), flight("SQ6", "9"),
+    flight("SQ9", "2", "Scheduled", addDays(today, -1)),
+  ]);
   await worker.scheduled({}, env, ctx); await ctx.drain();
   const w1 = env.BOARD_KV.writes;
   await worker.scheduled({}, env, ctx); await ctx.drain();
   assert.equal(env.BOARD_KV.writes, w1, "unchanged data must not write");
   const board = JSON.parse(env.BOARD_KV.store.get(`board:${today}`));
-  assert.deepEqual(board.dep.map((f) => f.fn), ["SQ1"]);
+  assert.deepEqual(board.dep.map((f) => f.fn), ["SQ1", "SQ4", "SQ5"]);
+  assert.deepEqual(board.dep.map((f) => f.t), ["1", "4", null]);
+  assert.ok(!("t_raw" in board.dep[0]));
 
   mockChangi([flight("SQ1", "1", "Boarding")]);
   await worker.scheduled({}, env, ctx); await ctx.drain();
