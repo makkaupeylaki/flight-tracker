@@ -126,7 +126,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .f-row {
   width: 100%; border: 0; background: transparent; text-align: left;
   display: grid; align-items: center; column-gap: 10px;
-  grid-template-columns: 3.1em minmax(0, 1.15fr) minmax(0, 1fr) 1.9em auto;
+  grid-template-columns: 3.1em minmax(0, 1.15fr) minmax(0, 1fr) 4.4em auto;
   padding: 12px 16px; min-height: 48px;
 }
 .f-row:hover { background: var(--surface); }
@@ -163,6 +163,21 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .t4 { color: var(--t4); }
 .f-term.tbc { color: var(--faint); font-weight: 400; font-size: 11px; }
 
+/* Terminal + gate: side by side on wider screens, stacked on phones. */
+.f-where { display: flex; align-items: baseline; justify-content: center; gap: 6px; white-space: nowrap; min-width: 0; }
+.f-gate { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.f-gate.changed { color: var(--warn); font-weight: 600; }
+.f-note { grid-column: 2 / -1; grid-row: 2; margin-top: 3px; color: var(--warn); font-size: 12px; line-height: 1.3; }
+.kv dd .gate-was { display: block; margin-top: 2px; color: var(--warn); font-family: var(--sans); font-size: 12px; }
+
+.f-detail.f-getting { padding-top: 12px; border-top: 1px solid var(--line); }
+.f-eyebrow {
+  grid-column: 1 / -1; margin: 0; color: var(--muted);
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em;
+}
+.kv .k { display: block; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; }
+.kv .v { display: block; margin-top: 2px; font-size: 14px; overflow-wrap: anywhere; }
+
 .pill {
   justify-self: end; max-width: 8.5em;
   padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 550;
@@ -188,7 +203,9 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .kv dd small { color: var(--muted); font-family: var(--sans); font-size: 12px; }
 
 @media (max-width: 460px) {
-  .f-row { grid-template-columns: 3em minmax(0, 1fr) minmax(0, 0.9fr) 1.6em auto; column-gap: 8px; }
+  .f-row { grid-template-columns: 3em minmax(0, 1fr) minmax(0, 0.9fr) 2.3em auto; column-gap: 8px; }
+  .f-where { flex-direction: column; align-items: center; gap: 1px; line-height: 1.15; }
+  .f-gate { font-size: 11px; }
   .f-flight { gap: 5px; }
   .f-al { font-size: 12px; }
   .pill { max-width: 6.8em; font-size: 11px; padding: 2px 7px; }

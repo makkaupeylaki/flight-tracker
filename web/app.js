@@ -139,6 +139,24 @@ function filteredFlights(data) {
   });
 }
 
+/** "3" -> "Door 3", "1-6 (Basement 1)" -> "Doors 1-6 (Basement 1)". */
+const doorLabel = (v) => `${/^\s*\d+\s*[-–,]/.test(v) ? "Doors" : "Door"} ${v}`;
+
+/** Departures only: a published gate that differs from the previous one (L/R ignored by the Worker). */
+const gateChanged = (f, dir = state.dir) => dir === "dep" && Boolean(f.gate && f.gate_was);
+
+function gettingThereHTML(f, dep) {
+  const item = (k, v) => (v ? `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>` : "");
+  const items = dep
+    ? item("Drop-off", f.drop_door && doorLabel(f.drop_door))
+    : item("Pick-up", f.pick_door && doorLabel(f.pick_door)) + item("Nearest car park", f.carpark);
+  if (!items) return "";
+  return `<section class="f-detail f-getting" aria-label="Getting there">
+    <h3 class="f-eyebrow">Getting there${f.t ? ` · <span class="${termClass(f.t)}">T${esc(f.t)}</span>` : ""}</h3>
+    ${items}
+  </section>`;
+}
+
 function detailHTML(f) {
   const kv = (k, v) => (v ? `<div class="kv"><dt>${esc(k)}</dt><dd>${v}</dd></div>` : "");
   const time = (hm, ts) => {
@@ -151,7 +169,9 @@ function detailHTML(f) {
   return `<dl class="f-detail">
     ${kv(dep ? "To" : "From", place)}
     ${kv("Airline", esc(f.an || f.al))}
-    ${dep ? kv("Gate", esc(f.gate) || "—") : kv("Belt", f.belt ? `${esc(f.belt)}${f.belt_status ? ` <small>${esc(f.belt_status)}</small>` : ""}` : "—")}
+    ${dep ? kv("Gate", f.gate
+      ? `${esc(f.gate)}${gateChanged(f) ? `<small class="gate-was">Gate changed, was ${esc(f.gate_was)}</small>` : ""}`
+      : "—") : kv("Belt", f.belt ? `${esc(f.belt)}${f.belt_status ? ` <small>${esc(f.belt_status)}</small>` : ""}` : "—")}
     ${dep ? kv("Check-in row", esc(f.row) || "—") : ""}
     ${kv("Scheduled", time(f.st, `${f.d} ${f.st}`))}
     ${kv("Estimated", time(f.et, f.ets) || "—")}
@@ -159,6 +179,7 @@ function detailHTML(f) {
     ${kv("Aircraft", esc(f.ac) || "—")}
     ${kv("Terminal", f.t ? `<span class="${termClass(f.t)}">T${esc(f.t)}</span>` : "Not assigned yet")}
   </dl>
+  ${gettingThereHTML(f, dep)}
   ${state.day === 0 ? `<div class="f-actions"><button class="track-btn" type="button" data-track="${esc(flightKey(f))}">${trackLabel(isLive(f))}</button></div>` : ""}`;
 }
 
@@ -167,14 +188,23 @@ function rowHTML(f) {
   const open = state.open.has(key);
   const changed = f.et && f.et !== f.st && !isFinished(f);
   const live = isLive(f);
+  const dep = state.dir === "dep";
+  // Flag the change on the row only while people may still be heading to the gate;
+  // the detail keeps it after departure.
+  const moved = gateChanged(f) && !isFinished(f);
+  const gate = dep && f.gate
+    ? `<span class="f-gate${moved ? " changed" : ""}" title="Gate ${esc(f.gate)}${moved ? `, changed from ${esc(f.gate_was)}` : ""}">${esc(f.gate)}</span>`
+    : "";
+  const note = moved ? `<span class="f-note">Gate changed, was ${esc(f.gate_was)}</span>` : "";
   return `<div class="flight${open ? " open" : ""}${live ? " live" : ""}" data-key="${esc(key)}">
     <button class="f-row" aria-expanded="${open}">
       <span class="live-tag" title="On the map now"><span class="sr-only">Live on map. </span></span>
       <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(changed ? f.et : f.st)}</span>
       <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span><span class="f-al">${esc(f.an || "")}</span></span>
       <span class="f-city">${esc(f.city || f.ap)}</span>
-      <span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>
+      <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>${gate}</span>
       <span class="pill ${statusClass(f)}">${esc(f.status)}</span>
+      ${note}
     </button>
     ${open ? detailHTML(f) : ""}
   </div>`;

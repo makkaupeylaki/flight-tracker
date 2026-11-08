@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker, { refreshBoard } from "../src/index.js";
-import { normalise, sgtToday, addDays } from "../src/changi.js";
+import { normalise, sgtToday, addDays, gateBase } from "../src/changi.js";
 import { makeKV, installCaches, makeCtx } from "./harness.js";
 
 installCaches();
@@ -37,6 +37,25 @@ test("normalise maps fields and hides gate when show_gate is false", () => {
   assert.equal(f.et, "07:30");
   assert.equal(f.gate, null);
   assert.equal(f.status, "Scheduled");
+});
+
+test("gate change ignores the hold-room L/R suffix and unpublished gates", () => {
+  assert.equal(gateBase("f56l"), "F56");
+  assert.equal(gateBase("A1"), "A1");
+  const base = flight("SQ944", "3");
+  const moved = normalise({ ...base, display_gate: "F54", current_gate: "F54", previous_gate: "F41" });
+  assert.equal(moved.gate_was, "F41");
+  const side = normalise({ ...base, display_gate: "F56", current_gate: "F56L", previous_gate: "F56R" });
+  assert.equal(side.gate_was, null, "F56R -> F56L is the same gate for passengers");
+  const hidden = normalise({ ...base, current_gate: "F54", previous_gate: "F41", status_mapping: { show_gate: false } });
+  assert.equal(hidden.gate, null);
+  assert.equal(hidden.gate_was, null);
+  const arr = normalise({ ...base, display_gate: "F36", current_gate: null, previous_gate: "F56L",
+    pick_up_door: "1-6 (Basement 1)", nearest_carpark: "Car Park 2A" });
+  assert.equal(arr.gate_was, "F56");
+  assert.equal(arr.pick_door, "1-6 (Basement 1)");
+  assert.equal(arr.carpark, "Car Park 2A");
+  assert.equal(normalise({ ...base, drop_off_door: "3" }).drop_door, "3");
 });
 
 test("addDays crosses month boundaries", () => {

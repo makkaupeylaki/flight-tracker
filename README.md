@@ -29,7 +29,9 @@ Pages (web/) ──► GET /api/board    ◄────────────
 
 `Flight` fields: `fn` flight number, `al`/`an` airline code/name, `ap`/`city`/`cc` other airport,
 `t` terminal, `d` date, `st`/`et`/`at` scheduled/estimated/actual HH:mm (`ets`/`ats` full timestamps),
-`gate`, `row` (check-in), `belt`, `ac` aircraft type, `status` (friendly text), `raw` (raw status).
+`gate`, `row` (check-in), `belt`, `ac` aircraft type, `status` (friendly text), `raw` (raw status),
+`gate_cur`/`gate_prev` (raw current/previous gate), `gate_was` (previous gate when it really changed, ignoring the
+hold-room L/R suffix), `drop_door`, `pick_door`, `carpark`. Gate fields stay null until Changi publishes the gate.
 
 ## Deploy
 

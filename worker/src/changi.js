@@ -40,7 +40,8 @@ const FIELDS = `
   airport_details { name code country_code lat lng }
   terminal scheduled_date scheduled_time
   estimated_timestamp actual_timestamp
-  display_gate check_in_row display_belt aircraft_type
+  display_gate current_gate previous_gate check_in_row display_belt aircraft_type
+  drop_off_door pick_up_door nearest_carpark
   flight_status
   status_mapping { listing_status_en belt_status_en show_gate }
 `;
@@ -118,6 +119,17 @@ function hhmm(ts) {
 }
 
 /**
+ * The public gate number without the hold-room side: "F56L" -> "F56".
+ * Changi's current_gate/previous_gate often carry an L/R suffix that the
+ * displayed gate doesn't, and moving between F56R and F56L is not a change
+ * passengers need to act on.
+ */
+export function gateBase(g) {
+  const v = nz(g);
+  return v ? v.trim().toUpperCase().replace(/(\d)[LR]$/, "$1") : null;
+}
+
+/**
  * Normalised flight (compact JSON for KV and the frontend):
  * {
  *   fn: "SQ828", al: "SQ", an: "Singapore Airlines", logo: url|null,
@@ -125,14 +137,23 @@ function hhmm(ts) {
  *   t: "2"|null (null = terminal not assigned yet), d: "2026-11-08", st: "07:25",
  *   et: "07:40"|null, at: "07:38"|null, ets: "2026-11-08 07:40"|null, ats: ...,
  *   gate: "C22"|null, row: "3"|null, belt: "17"|null, ac: "A359"|null,
+ *   gate_cur: "C22L"|null, gate_prev: "B9"|null,   (raw current_gate/previous_gate)
+ *   gate_was: "B9"|null,  (previous gate when it really changed, L/R ignored)
+ *   drop_door: "3"|null, pick_door: "1-6 (Basement 1)"|null, carpark: "Car Park 3A"|null,
  *   raw: "Departed", status: "Departed", belt_status: null
  * }
+ * Gate fields stay null until Changi publishes the gate (status_mapping.show_gate).
  */
 export function normalise(f) {
   const al = f.airline_details || {};
   const ap = f.airport_details || {};
   const sm = f.status_mapping || {};
   const showGate = sm.show_gate !== false;
+  const gate = showGate ? nz(f.display_gate) : null;
+  const gateCur = showGate ? nz(f.current_gate) : null;
+  const gatePrev = showGate ? nz(f.previous_gate) : null;
+  const nowBase = gateBase(gateCur || gate);
+  const prevBase = gateBase(gatePrev);
   return {
     fn: nz(f.flight_number),
     al: nz(f.airline) || nz(al.code),
@@ -149,7 +170,13 @@ export function normalise(f) {
     at: hhmm(f.actual_timestamp),
     ets: nz(f.estimated_timestamp),
     ats: nz(f.actual_timestamp),
-    gate: showGate ? nz(f.display_gate) : null,
+    gate,
+    gate_cur: gateCur,
+    gate_prev: gatePrev,
+    gate_was: prevBase && nowBase && prevBase !== nowBase ? prevBase : null,
+    drop_door: nz(f.drop_off_door),
+    pick_door: nz(f.pick_up_door),
+    carpark: nz(f.nearest_carpark),
     row: nz(f.check_in_row),
     belt: nz(f.display_belt),
     ac: nz(f.aircraft_type),
