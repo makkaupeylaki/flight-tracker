@@ -123,12 +123,19 @@ function delayMinutes(f) {
   return Math.round((actual - sched) / 60e3);
 }
 
-function delayTagHTML(f) {
+const EARLY_ARRIVAL_WINDOW_MIN = 180; // arrivals: show "Early" only when due within 3 hours
+
+function delayTagHTML(f, dir) {
   const m = delayMinutes(f);
   if (m === null || Math.abs(m) < DELAY_TAG_MIN) return "";
   // "Early" only helps before landing (e.g. leave sooner for a pickup); once landed,
   // the pill already shows the landing time. Delays always show.
   if (m < 0 && /landed|arrived/i.test(`${f.raw || ""} ${f.status || ""}`)) return "";
+  // Arrivals: "Early" is useful for a pickup when the flight is due soon, not hours ahead.
+  if (m < 0 && dir === "arr") {
+    const due = flightTimeMin(f);
+    if (due === null || due - Date.now() / 60e3 > EARLY_ARRIVAL_WINDOW_MIN) return "";
+  }
   const basis = f.ats ? "actual" : "estimated";
   return m > 0
     ? `<span class="delay-tag late" title="${basis} time is ${m} min later than scheduled">Delayed +${m}m</span>`
@@ -378,7 +385,7 @@ function rowHTML(f, dir = state.dir) {
       <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span></span>
       <span class="f-city">${esc(f.city || f.ap)}</span>
       <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>${gate}</span>
-      <span class="f-status"><span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>${delayTagHTML(f)}</span>
+      <span class="f-status"><span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>${delayTagHTML(f, dir)}</span>
       ${side}${note}
       <button class="fav-btn" type="button" data-fav aria-pressed="${saved}" aria-label="${saved ? "Remove" : "Save"} ${esc(f.fn)}${saved ? " from saved flights" : ""}" title="${saved ? "Saved" : "Save flight"}">${STAR_SVG(saved)}</button>
     </div>
