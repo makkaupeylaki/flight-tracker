@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import worker, { refreshBoard } from "../src/index.js";
 import { normalise, sgtToday, addDays, gateBase, effectiveTs } from "../src/changi.js";
 import { makeKV, installCaches, makeCtx } from "./harness.js";
+import { normaliseArea, normaliseCallsign, MAX_DIST_NM } from "../src/traffic.js";
 
 installCaches();
 const today = sgtToday();
@@ -70,6 +71,43 @@ test("board is sorted by the displayed (estimated, else scheduled) time", async 
   const { board } = await refreshBoard(env, today);
   assert.deepEqual(board.dep.map((f) => f.fn), ["SQ4", "SQ2", "SQ3", "SQ1"]);
   assert.equal(effectiveTs({ d: today, st: "08:00", ets: null }), `${today} 08:00`);
+});
+
+test("traffic areas are validated, rounded for caching and capped at 250 nm", () => {
+  assert.deepEqual(normaliseArea(null, null, null), { lat: 1.4, lon: 104, dist: 50 });
+  const a = normaliseArea("51.4712", "-0.4543", "40");
+  assert.equal(a.lat, 51.5); assert.equal(a.lon, -0.5); assert.ok(a.dist >= 40);
+  assert.equal(normaliseArea("10", "100", "900").dist, MAX_DIST_NM);
+  assert.equal(normaliseArea("10", "370", "30").lon, 10, "panned past the antimeridian wraps");
+  assert.throws(() => normaliseArea("95", "0", "10"), /lat/);
+  assert.throws(() => normaliseArea("1", "1", "-5"), /dist/);
+  assert.equal(normaliseCallsign(" sia 322 "), "SIA322");
+  assert.throws(() => normaliseCallsign("SIA-322!"), /callsign/);
+});
+
+test("traffic: area and callsign lookups, fallback to airplanes.live, never KV", async () => {
+  const env = { BOARD_KV: makeKV() };
+  const ctx = makeCtx();
+  const seen = [];
+  globalThis.fetch = async (url) => {
+    seen.push(String(url));
+    if (String(url).includes("adsb.lol")) return new Response("rate limit exceeded", { status: 429 });
+    return Response.json({ ac: [{ hex: "76cd7a", flight: "SIA322  ", lat: 30, lon: 60, alt_baro: 38000, gs: 520, track: 305 }] });
+  };
+  const area = await (await worker.fetch(new Request("https://x/api/traffic?lat=30.02&lon=60.01&dist=200"), env, ctx)).json();
+  assert.equal(area.source, "airplanes.live");
+  assert.equal(area.ac[0].cs, "SIA322");
+  assert.deepEqual(area.area, { lat: 30, lon: 60, dist: 250 });
+  assert.match(seen[0], /api\.adsb\.lol\/v2\/lat\/30\/lon\/60\/dist\/250/);
+  assert.match(seen[1], /api\.airplanes\.live\/v2\/point\/30\/60\/250/);
+
+  const cs = await (await worker.fetch(new Request("https://x/api/traffic?callsign=sia322"), env, ctx)).json();
+  assert.equal(cs.callsign, "SIA322");
+  assert.equal(cs.ac.length, 1);
+  assert.ok(seen.some((u) => u.endsWith("/v2/callsign/SIA322")));
+
+  assert.equal((await worker.fetch(new Request("https://x/api/traffic?lat=abc"), env, ctx)).status, 400);
+  assert.equal(env.BOARD_KV.writes, 0, "traffic must never be written to KV");
 });
 
 test("addDays crosses month boundaries", () => {

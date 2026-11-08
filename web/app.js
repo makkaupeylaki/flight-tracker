@@ -15,6 +15,10 @@ const MIN_SPIN_MS = 600; // keep the refresh spinner visible long enough to regi
 const OLD_DATA_MS = 15 * 60e3; // mention the data's own time when it's older than this
 const REFRESH_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const TRAFFIC_REFRESH_MS = 15e3; // tracker tab
+const MAP_MOVE_DEBOUNCE_MS = 800; // wait for the map to settle before fetching a new area
+const MAX_DIST_NM = 250; // ADS-B providers cap an area query at 250 nm
+const CHANGI_ZOOM = 10; // default view on load
+const JUMP_ZOOM = 7; // zoom used when jumping to a plane found by callsign
 const TRAFFIC_MAX_AGE_MS = 3 * 60e3; // drop live marks if positions are older than this
 const EARLIER_GRACE_MIN = 60; // today: hide finished flights older than this
 
@@ -33,6 +37,17 @@ const ICAO_TO_IATA = {
 
 // IATA codes whose callsign prefix is in the map above (used to rule out false matches).
 const KNOWN_IATA = new Set(Object.values(ICAO_TO_IATA));
+// IATA -> ICAO for building a callsign from a board flight (first entry wins: SQ -> SIA, not SQC).
+const IATA_TO_ICAO = {};
+for (const [icao, iata] of Object.entries(ICAO_TO_IATA)) if (iata && !IATA_TO_ICAO[iata]) IATA_TO_ICAO[iata] = icao;
+
+/** "SQ322" -> "SIA322"; null when the airline's callsign prefix isn't known. */
+function callsignFor(f) {
+  const icao = f && f.al && IATA_TO_ICAO[f.al];
+  if (!icao) return null;
+  const num = f.fn.slice(f.al.length).replace(/^0+/, "");
+  return /^\d{1,4}[A-Z]?$/.test(num) ? icao + num : null;
+}
 
 // ================================================================ utils
 
@@ -59,8 +74,8 @@ const fmtSGT = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Singapore", ho
 const fmtDay = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
 
 /** `fresh` skips the browser's HTTP cache (used by the refresh button). */
-async function getJSON(path, { fresh = false } = {}) {
-  const res = await fetch(API + path, { headers: { Accept: "application/json" }, cache: fresh ? "no-cache" : "default" });
+async function getJSON(path, { fresh = false, signal } = {}) {
+  const res = await fetch(API + path, { headers: { Accept: "application/json" }, cache: fresh ? "no-cache" : "default", signal });
   let body = null;
   try { body = await res.json(); } catch { /* non-JSON */ }
   if (!res.ok) throw new Error((body && body.error) || `HTTP ${res.status}`);
@@ -378,6 +393,8 @@ const tracker = {
   index: null, // matching index built from today's board
   focus: null, // board flight the user asked to track: { ...flight, dir, checked }
   cardFlight: null, // board flight shown on the card, for "View on board"
+  pinned: null, // { hex, flight }: a plane found by callsign lookup, so its card keeps the route
+  moveTimer: null, // debounce for map pans/zooms
   traffic: [], // latest aircraft positions
   trafficAt: 0, // when they were fetched (ms)
   live: new Set(), // liveKey()s of board flights whose plane is in `traffic`
@@ -457,6 +474,41 @@ function trackFlight(dir, key) {
   show("tracker");
   renderCard();
   resolveFocus();
+  // Not in the current view: a departed flight (or an inbound one) may be far
+  // away, so look it up by callsign and jump the map to it.
+  if (tracker.focus && wantsLookup(tracker.focus)) lookupFocus(tracker.focus);
+}
+
+/** Departed departures and not-yet-landed arrivals can be anywhere: worth a callsign lookup. */
+function wantsLookup(f) {
+  const s = `${f.raw} ${f.status}`.toLowerCase();
+  if (/cancel/.test(s)) return false;
+  return f.dir === "dep" ? /depart/.test(s) : !/landed|arrived/.test(s);
+}
+
+/** Find the focused flight anywhere by callsign; jump the map to it, or say it's out of coverage. */
+async function lookupFocus(f) {
+  if (!tracker.map) { setTimeout(() => tracker.focus === f && lookupFocus(f), 200); return; }
+  const cs = callsignFor(f);
+  if (!cs) { f.lookup = "nocs"; renderCard(); return; }
+  f.lookup = "pending";
+  renderCard();
+  try {
+    const data = await getJSON(`/api/traffic?callsign=${encodeURIComponent(cs)}`);
+    if (tracker.focus !== f) return; // the user moved on
+    const ac = (data.ac || [])[0];
+    if (!ac) { f.lookup = "missing"; renderCard(); return; }
+    tracker.pinned = { hex: ac.hex, flight: f };
+    // Drop any in-flight fetch for the old view so it can't mark this plane as lost.
+    trafficSeq++;
+    if (trafficAbort) trafficAbort.abort();
+    upsertMarker(ac);
+    select(ac.hex);
+    // Moving the map triggers a fetch of the area around the plane (debounced).
+    tracker.map.setView([ac.lat, ac.lon], JUMP_ZOOM);
+  } catch (e) {
+    if (tracker.focus === f) { f.lookup = "failed"; renderCard(); }
+  }
 }
 
 /** If the focused flight's plane is on the map, select it and centre on it. */
@@ -495,10 +547,10 @@ function viewOnBoard(f) {
 
 function initMap() {
   if (tracker.map || !window.L) return;
-  const map = L.map("map", { center: CHANGI, zoom: 10, zoomControl: true, attributionControl: true });
+  const map = L.map("map", { center: CHANGI, zoom: CHANGI_ZOOM, zoomControl: true, attributionControl: true });
   const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://adsb.lol">adsb.lol</a>',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://adsb.lol">adsb.lol</a> / <a href="https://airplanes.live">airplanes.live</a>',
   });
   // "Loading map…" until the visible tiles have loaded (or failed), with a safety timeout.
   const loading = $("#map-loading");
@@ -518,6 +570,17 @@ function initMap() {
     interactive: false, keyboard: false,
   }).addTo(map);
   map.on("click", () => { if (tracker.selected || tracker.focus) select(null); });
+  // Follow the map: when the user pans or zooms, fetch planes around the new
+  // centre once the map has settled, and restart the 15 s poll from there.
+  map.on("movestart", () => clearTimeout(tracker.moveTimer));
+  map.on("moveend", () => {
+    clearTimeout(tracker.moveTimer);
+    tracker.moveTimer = setTimeout(() => {
+      if (state.view !== "tracker") return;
+      loadTraffic();
+      schedulePoll();
+    }, MAP_MOVE_DEBOUNCE_MS);
+  });
   // Refresh as a standard map control (top right), so the map stays clean.
   const Refresh = L.Control.extend({
     options: { position: "topright" },
@@ -557,18 +620,45 @@ function updatePlane(entry) {
 }
 
 /** Fetch aircraft positions: drives the map on the Tracker tab and live marks on the board. */
+/**
+ * The area to fetch: on the Tracker, the map's centre and a radius covering the
+ * visible map (capped at 250 nm); on the Board, null = the Worker's default
+ * around Changi (used for the live dots).
+ */
+function trafficArea() {
+  if (state.view !== "tracker" || !tracker.map) return null;
+  const c = tracker.map.getCenter();
+  const b = tracker.map.getBounds();
+  const corners = [b.getNorthEast(), b.getNorthWest(), b.getSouthEast(), b.getSouthWest()];
+  const nm = Math.max(...corners.map((p) => haversineKm([c.lat, c.lng], [p.lat, p.lng]))) / 1.852;
+  return { lat: c.lat, lon: c.lng, dist: Math.min(MAX_DIST_NM, Math.max(5, Math.ceil(nm))), clipped: nm > MAX_DIST_NM };
+}
+
+let trafficSeq = 0;
+let trafficAbort = null;
+
+/** Fetch aircraft positions: the visible map area on the Tracker tab, Changi for the board's live marks. */
 async function loadTraffic({ fresh = false } = {}) {
   if (document.hidden) return;
   if (state.view === "board" && state.day !== 0) return; // live marks only apply to today
+  const area = trafficArea();
+  const path = area
+    ? `/api/traffic?lat=${area.lat.toFixed(3)}&lon=${area.lon.toFixed(3)}&dist=${area.dist}`
+    : "/api/traffic";
+  const seq = ++trafficSeq;
+  if (trafficAbort) trafficAbort.abort(); // a newer view supersedes any request in flight
+  trafficAbort = new AbortController();
   const note = $("#map-note");
   try {
-    const data = await getJSON("/api/traffic", { fresh });
-    note.hidden = !data.stale;
-    if (data.stale) note.textContent = "Positions delayed";
+    const data = await getJSON(path, { fresh, signal: trafficAbort.signal });
+    if (seq !== trafficSeq) return;
+    note.hidden = !data.stale && !(area && area.clipped);
+    note.textContent = data.stale ? "Positions delayed" : "Showing 250 nm around the centre · zoom in for the rest";
     tracker.traffic = data.ac || [];
     tracker.trafficAt = data.at || Date.now();
-    applyTraffic(tracker.traffic);
+    if (state.view === "tracker") applyTraffic(tracker.traffic);
   } catch (e) {
+    if (e.name === "AbortError" || seq !== trafficSeq) return;
     note.hidden = false;
     note.textContent = "Live positions unavailable";
     if (tracker.focus) { tracker.focus.checked = true; tracker.focus.failed = true; renderCard(); }
@@ -576,30 +666,36 @@ async function loadTraffic({ fresh = false } = {}) {
   computeLive();
 }
 
+/** Add or move one plane's marker. */
+function upsertMarker(ac) {
+  const onBoard = Boolean(matchFlight(ac.cs)) || (tracker.pinned && tracker.pinned.hex === ac.hex);
+  let entry = tracker.markers.get(ac.hex);
+  if (!entry) {
+    const marker = L.marker([ac.lat, ac.lon], {
+      icon: planeIcon(ac, false, onBoard),
+      keyboard: true,
+      title: ac.cs || "Unknown flight",
+      riseOnHover: true,
+    }).addTo(tracker.map);
+    entry = { marker, ac, onBoard };
+    marker.on("click", (e) => { L.DomEvent.stopPropagation(e); select(ac.hex); });
+    tracker.markers.set(ac.hex, entry);
+  } else {
+    entry.ac = ac;
+    entry.onBoard = onBoard;
+    entry.marker.setLatLng([ac.lat, ac.lon]);
+  }
+  entry.lost = false;
+  updatePlane(entry);
+  return entry;
+}
+
 function applyTraffic(list) {
   if (!tracker.map) return;
   const seen = new Set();
   for (const ac of list) {
     seen.add(ac.hex);
-    const onBoard = Boolean(matchFlight(ac.cs));
-    let entry = tracker.markers.get(ac.hex);
-    if (!entry) {
-      const marker = L.marker([ac.lat, ac.lon], {
-        icon: planeIcon(ac, false, onBoard),
-        keyboard: true,
-        title: ac.cs || "Unknown flight",
-        riseOnHover: true,
-      }).addTo(tracker.map);
-      entry = { marker, ac, onBoard };
-      marker.on("click", (e) => { L.DomEvent.stopPropagation(e); select(ac.hex); });
-      tracker.markers.set(ac.hex, entry);
-    } else {
-      entry.ac = ac;
-      entry.onBoard = onBoard;
-      entry.marker.setLatLng([ac.lat, ac.lon]);
-    }
-    entry.lost = false;
-    updatePlane(entry);
+    upsertMarker(ac);
   }
   for (const [hex, entry] of tracker.markers) {
     if (seen.has(hex)) continue;
@@ -617,6 +713,7 @@ function applyTraffic(list) {
 
 function select(hex) {
   tracker.focus = null;
+  if (tracker.pinned && tracker.pinned.hex !== hex) tracker.pinned = null;
   const prev = tracker.selected;
   tracker.selected = hex;
   for (const h of [prev, hex]) {
@@ -643,7 +740,14 @@ function notLiveMessage(f) {
   if (f.failed) return `Live positions are unavailable right now, so ${fn} can't be shown. Try again in a minute.`;
   const s = `${f.raw} ${f.status}`.toLowerCase();
   if (/cancel/.test(s)) return `${fn} is cancelled.`;
-  if (f.dir === "dep" && /depart/.test(s)) return `${fn} has departed and is now beyond the map's range.`;
+  if (f.lookup === "pending") return `Looking for ${fn} beyond Changi…`;
+  if (f.lookup === "failed") return `Live positions are unavailable right now, so ${fn} can't be found. Try again in a minute.`;
+  if (f.lookup === "nocs") {
+    return `<span class="c-tag">Out of coverage</span> ${fn} can't be looked up: flightlah doesn't know this airline's radio callsign yet.`;
+  }
+  if (f.dir === "dep" && (f.lookup === "missing" || /depart/.test(s))) {
+    return `<span class="c-tag">Out of coverage</span> ${fn} has departed, but no community ADS-B receiver can see it right now. This is common over oceans and remote areas.`;
+  }
   if (f.dir === "arr" && /landed|arrived/.test(s)) return `${fn} has landed and is no longer broadcasting its position.`;
   if (f.dir === "dep") {
     return `${fn} isn't airborne yet. It's due to depart at ${esc(f.et || f.st)}${f.gate ? ` from gate ${esc(f.gate)}` : ""}. It will appear here once it's airborne.`;
@@ -677,7 +781,7 @@ function renderCard() {
     return;
   }
   const { ac } = entry;
-  const f = matchFlight(ac.cs);
+  const f = matchFlight(ac.cs) || (tracker.pinned && tracker.pinned.hex === ac.hex ? tracker.pinned.flight : null);
   const km = haversineKm(CHANGI, [ac.lat, ac.lon]);
   const alt = ac.gnd ? "Ground" : ac.alt != null ? `${Math.round(ac.alt).toLocaleString("en-US")} ft` : "—";
   const spd = ac.gs != null ? `${Math.round(ac.gs)} kt` : "—";
@@ -701,16 +805,21 @@ function renderCard() {
   card.setAttribute("aria-hidden", "false");
 }
 
+/** (Re)start the Tracker's 15 s position poll for whatever area the map shows. */
+function schedulePoll() {
+  clearInterval(tracker.timer);
+  tracker.timer = setInterval(() => loadTraffic(), TRAFFIC_REFRESH_MS);
+}
+
 function startTracker() {
   initMap();
   if (!tracker.map) { setTimeout(startTracker, 200); return; } // Leaflet still loading
   tracker.map.invalidateSize();
   if (!state.boards.has(sgtDate(0))) loadBoard(sgtDate(0), { quiet: true });
   loadTraffic();
-  clearInterval(tracker.timer);
-  tracker.timer = setInterval(loadTraffic, TRAFFIC_REFRESH_MS);
+  schedulePoll();
 }
-function stopTracker() { clearInterval(tracker.timer); tracker.timer = null; }
+function stopTracker() { clearInterval(tracker.timer); tracker.timer = null; clearTimeout(tracker.moveTimer); }
 
 // ================================================================ refresh
 
@@ -760,13 +869,18 @@ function refreshNow({ manual = true } = {}) {
 // ================================================================ views
 
 function show(view) {
+  const prev = state.view;
   state.view = view;
   $$(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === view)));
   $("#view-board").hidden = view !== "board";
   $("#view-tracker").hidden = view !== "tracker";
   document.body.classList.toggle("tracking", view === "tracker");
   history.replaceState(null, "", view === "tracker" ? "#tracker" : location.pathname + location.search);
-  if (view === "tracker") startTracker(); else stopTracker();
+  if (view === "tracker") startTracker();
+  else {
+    stopTracker();
+    if (prev === "tracker") loadTraffic(); // live dots use the area around Changi, not the map's
+  }
 }
 
 function init() {
@@ -781,7 +895,7 @@ function init() {
   $("#refresh").addEventListener("click", () => refreshNow());
 
   loadBoard(currentDate());
-  loadTraffic();
+  if (state.view === "board") loadTraffic(); // the Tracker fetches its own area when it starts
   state.lastRefresh = Date.now();
   // Auto-refresh every 2 minutes while the page is visible (the Tracker tab
   // also refreshes positions every 15 s on its own timer).

@@ -7,13 +7,13 @@ It runs entirely on the Cloudflare free tier:
 Worker cron (*/10) ──► Changi GraphQL ──► normalise ──► hash ──► Workers KV (write only on change)
                                                                       │
 Pages (web/) ──► GET /api/board    ◄──────────────────────────────────┘
-             ──► GET /api/traffic  ──► adsb.lol (backup: adsb.fi), cached ~10 s
+             ──► GET /api/traffic  ──► adsb.lol (backup: airplanes.live), cached ~10 s, never in KV
 ```
 
 | Path | What |
 | --- | --- |
 | `worker/src/changi.js` | **All** Changi data-source logic (endpoint, headers, query, paging, normalisation). Swap this one file for the official developer-portal API later. |
-| `worker/src/traffic.js` | ADS-B proxy (adsb.lol, falls back to opendata.adsb.fi). |
+| `worker/src/traffic.js` | ADS-B proxy by map area or callsign (adsb.lol, falls back to airplanes.live). |
 | `worker/src/index.js` | Cron handler, KV caching, `/api/board`, `/api/traffic`, CORS. |
 | `worker/test/` | `npm test` — offline unit tests with a mocked upstream and in-memory KV. |
 | `web/` | Static frontend (vanilla JS, Leaflet from cdnjs, OSM tiles). No build step. |
@@ -25,7 +25,14 @@ Pages (web/) ──► GET /api/board    ◄────────────
   `{ date, updatedAt, source, stale, error, dep: Flight[], arr: Flight[] }`.
   If the cron hasn't run yet it fetches live and seeds KV.
 - `GET /api/board?date=yyyy-MM-dd` — another day (±7 days). Fetched live, cached ~5 min; falls back to KV.
-- `GET /api/traffic` — `{ source, at, ac: [{ hex, cs, reg, t, lat, lon, alt, gnd, gs, trk }] }`.
+- `GET /api/traffic` — aircraft near Changi (used for the board's live dots):
+  `{ source, at, area, ac: [{ hex, cs, reg, t, lat, lon, alt, gnd, gs, trk }] }`.
+- `GET /api/traffic?lat=&lon=&dist=` — aircraft around a map centre; `dist` in nautical miles, capped at 250.
+  The centre and radius are rounded (grid of 0.1–0.5°, radius buckets 25–250 nm) so nearby requests share a cache entry.
+- `GET /api/traffic?callsign=SIA322` — one flight wherever it is (`ac` is empty when no receiver sees it).
+
+Traffic is fetched live (adsb.lol first; on any error, including its 429 rate limit, airplanes.live) and cached
+only in Worker memory and via `Cache-Control: max-age=10`. It is never written to KV.
 
 `Flight` fields: `fn` flight number, `al`/`an` airline code/name, `ap`/`city`/`cc` other airport,
 `t` terminal, `d` date, `st`/`et`/`at` scheduled/estimated/actual HH:mm (`ets`/`ats` full timestamps),
@@ -94,7 +101,11 @@ npm test                                       # unit tests
 
 - The Changi endpoint is **unofficial** and may change or start blocking without notice. On failure the Worker
   keeps serving the last KV copy and the board shows "data may be stale" next to "Last updated HH:MM SGT".
-- adsb.lol/adsb.fi are community feeds; coverage and callsigns vary. Callsigns are matched to board flights
-  through an ICAO→IATA airline map (SIA→SQ, TGW→TR, …), with a numeric-only fallback for unmapped carriers.
+- adsb.lol and airplanes.live are community feeds; coverage and callsigns vary, and planes over oceans or remote
+  areas often aren't seen ("Out of coverage"). Callsigns are matched to board flights through an ICAO→IATA airline
+  map (SIA→SQ, TGW→TR, …), with a numeric-only fallback for unmapped carriers; the same map builds the callsign
+  used to find a departed flight.
+- adsb.lol rate-limits bursts (HTTP 429). airplanes.live may refuse requests (HTTP 403) from clients it doesn't
+  know and asks developers to email contact@airplanes.live first, so the fallback may not work until you do.
 
-Flight data: Changi Airport (changiairport.com). Aircraft positions: adsb.lol community ADS-B feed. Unofficial app.
+Flight data: Changi Airport (changiairport.com). Aircraft positions: adsb.lol community ADS-B feed (backup: airplanes.live). Unofficial app.

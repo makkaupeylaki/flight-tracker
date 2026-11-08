@@ -5,7 +5,7 @@
 //   GET /api/traffic -> live aircraft near Changi (ADS-B), cached ~10 s
 
 import { fetchBoard, sgtToday, addDays } from "./changi.js";
-import { fetchTraffic } from "./traffic.js";
+import { fetchTraffic, fetchCallsign, normaliseArea, normaliseCallsign } from "./traffic.js";
 
 const BOARD_TTL_S = 4 * 86400; // keep a few days of boards in KV
 const HEARTBEAT_MS = 30 * 60e3; // rewrite unchanged board at most every 30 min
@@ -189,19 +189,48 @@ async function handleBoard(request, env, ctx, url) {
 
 // ---------------------------------------------------------------- traffic
 
-let lastTraffic = null;
+// Last good answer per area/callsign, kept in this isolate's memory only (never KV),
+// so a brief upstream outage or rate limit can still be answered as "stale".
+const lastTraffic = new Map();
+function rememberTraffic(key, body) {
+  lastTraffic.set(key, body);
+  if (lastTraffic.size > 50) lastTraffic.delete(lastTraffic.keys().next().value);
+}
 
-async function handleTraffic(request, env, ctx) {
+/**
+ * GET /api/traffic                         aircraft within 25 nm of Changi
+ * GET /api/traffic?lat=&lon=&dist=         aircraft around a map centre (dist in nm, max 250)
+ * GET /api/traffic?callsign=SIA322         one flight wherever it is
+ * Fetched live from adsb.lol (fallback airplanes.live); cached ~10 s in memory
+ * and via HTTP cache headers. Nothing is written to KV.
+ */
+async function handleTraffic(request, env, ctx, url) {
+  const q = url.searchParams;
+  let key, area = null, callsign = null;
   try {
-    const body = await cached(ctx, "traffic", TRAFFIC_CACHE_S, async () => ({
-      ...(await fetchTraffic()),
+    if (q.has("callsign")) {
+      callsign = normaliseCallsign(q.get("callsign"));
+      key = `callsign-${callsign}`;
+    } else {
+      area = normaliseArea(q.get("lat"), q.get("lon"), q.get("dist"));
+      key = `traffic-${area.lat},${area.lon},${area.dist}`;
+    }
+  } catch (e) {
+    return json({ error: e.message }, { status: 400 });
+  }
+
+  try {
+    const body = await cached(ctx, key, TRAFFIC_CACHE_S, async () => ({
+      ...(callsign ? await fetchCallsign(callsign) : await fetchTraffic(area)),
+      ...(callsign ? { callsign } : { area }),
       at: Date.now(),
     }));
-    lastTraffic = body;
+    rememberTraffic(key, body);
     return json(body, { maxAge: TRAFFIC_CACHE_S });
   } catch (e) {
-    if (lastTraffic && Date.now() - lastTraffic.at < 120e3) {
-      return json({ ...lastTraffic, stale: true }, { maxAge: 5 });
+    const last = lastTraffic.get(key);
+    if (last && Date.now() - last.at < 120e3) {
+      return json({ ...last, stale: true }, { maxAge: 5 });
     }
     return json({ error: `Traffic unavailable: ${e.message}`, ac: [] }, { status: 502 });
   }
@@ -219,7 +248,7 @@ export default {
     let res;
     try {
       if (url.pathname === "/api/board") res = await handleBoard(request, env, ctx, url);
-      else if (url.pathname === "/api/traffic") res = await handleTraffic(request, env, ctx);
+      else if (url.pathname === "/api/traffic") res = await handleTraffic(request, env, ctx, url);
       else if (url.pathname === "/" || url.pathname === "/api") {
         res = json({ name: "changi-board", endpoints: ["/api/board", "/api/board?date=yyyy-MM-dd", "/api/traffic"] });
       } else res = json({ error: "Not found" }, { status: 404 });
