@@ -165,7 +165,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .f-row {
   width: 100%; border: 0; background: transparent; text-align: left;
   display: grid; align-items: center; column-gap: 10px;
-  grid-template-columns: 3.1em minmax(0, 1.15fr) minmax(0, 1fr) 4.4em auto;
+  grid-template-columns: 3.1em auto minmax(0, 1fr) 4.4em auto;
   padding: 12px 16px; min-height: 48px;
 }
 .f-row:hover { background: var(--surface); }
@@ -193,7 +193,6 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .f-time.changed { color: var(--warn); }
 .f-flight { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .f-fn { font-family: var(--mono); font-weight: 600; font-size: 14px; white-space: nowrap; }
-.f-al { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .f-city { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .f-term { color: var(--muted); font-family: var(--mono); font-size: 13px; font-weight: 600; text-align: center; white-space: nowrap; }
 .t1 { color: var(--t1); }
@@ -246,11 +245,9 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .kv dd small { color: var(--muted); font-family: var(--sans); font-size: 12px; }
 
 @media (max-width: 460px) {
-  .f-row { grid-template-columns: 3em minmax(0, 1fr) minmax(0, 0.9fr) 2.3em auto; column-gap: 8px; }
+  .f-row { grid-template-columns: 3em auto minmax(0, 1fr) 2.3em auto; column-gap: 8px; }
   .f-where { flex-direction: column; align-items: center; gap: 1px; line-height: 1.15; }
   .f-gate { font-size: 11px; }
-  .f-flight { gap: 5px; }
-  .f-al { font-size: 12px; }
   .pill { font-size: 11px; padding: 2px 6px; }
   .f-detail, .f-actions { padding-left: 16px; }
   .chips { gap: 5px; }

@@ -262,7 +262,7 @@ function rowHTML(f) {
     <button class="f-row" aria-expanded="${open}">
       <span class="live-tag" title="On the map now"><span class="sr-only">Live on map. </span></span>
       <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(shownTime(f))}</span>
-      <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span><span class="f-al">${esc(f.an || "")}</span></span>
+      <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span></span>
       <span class="f-city">${esc(f.city || f.ap)}</span>
       <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>${gate}</span>
       <span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>
