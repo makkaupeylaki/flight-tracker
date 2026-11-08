@@ -181,7 +181,27 @@ function filteredFlights(data) {
 const doorLabel = (v) => `${/^\s*\d+\s*[-–,]/.test(v) ? "Doors" : "Door"} ${v}`;
 
 /** Departures only: a published gate that differs from the previous one (L/R ignored by the Worker). */
-const gateChanged = (f, dir = state.dir) => dir === "dep" && Boolean(f.gate && f.gate_was);
+const gateChanged = (f) => Boolean(f.gate && f.gate_was);
+
+// Terminal side for an arrival gate, from the gate's first letter (static lookup;
+// T4's G/H gates have no side). Letters are unique across T1-T3.
+const GATE_SIDES = {
+  C: ["1", "West"], D: ["1", "East"],
+  E: ["2", "North"], F: ["2", "South"],
+  A: ["3", "South"], B: ["3", "North"],
+};
+
+/** "F56L" -> "F56": the public gate number without the hold-room side. */
+const plainGate = (g) => String(g).trim().toUpperCase().replace(/(\d)[LR]$/, "$1");
+
+/** Arrival gate text: "T2 North · Gate E8", or just "Gate G9" when the letter has no side. */
+function arrivalGateHTML(gate) {
+  const g = plainGate(gate);
+  const side = GATE_SIDES[g[0]];
+  return side
+    ? `<span class="t${side[0]}">T${side[0]} ${side[1]}</span> · Gate ${esc(g)}`
+    : `Gate ${esc(g)}`;
+}
 
 function gettingThereHTML(f, dep) {
   const item = (k, v) => (v ? `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>` : "");
@@ -209,7 +229,7 @@ function detailHTML(f) {
     ${kv("Airline", esc(f.an || f.al))}
     ${dep ? kv("Gate", f.gate
       ? `${esc(f.gate)}${gateChanged(f) ? `<small class="gate-was">Gate changed, was ${esc(f.gate_was)}</small>` : ""}`
-      : "—") : kv("Belt", f.belt ? `${esc(f.belt)}${f.belt_status ? ` <small>${esc(f.belt_status)}</small>` : ""}` : "—")}
+      : "—") : (f.gate ? kv("Gate", `${arrivalGateHTML(f.gate)}${gateChanged(f) ? `<small class="gate-was">Gate changed, was ${esc(f.gate_was)}</small>` : ""}`) : "") + kv("Belt", f.belt ? `${esc(f.belt)}${f.belt_status ? ` <small>${esc(f.belt_status)}</small>` : ""}` : "—")}
     ${dep ? kv("Check-in row", esc(f.row) || "—") : ""}
     ${kv("Scheduled", time(f.st, `${f.d} ${f.st}`))}
     ${kv("Estimated", time(f.et, f.ets) || "—")}
@@ -234,6 +254,10 @@ function rowHTML(f) {
     ? `<span class="f-gate${moved ? " changed" : ""}" title="Gate ${esc(f.gate)}${moved ? `, changed from ${esc(f.gate_was)}` : ""}">${esc(f.gate)}</span>`
     : "";
   const note = moved ? `<span class="f-note">Gate changed, was ${esc(f.gate_was)}</span>` : "";
+  // Arrivals: terminal side and gate on a second line, only once Changi publishes the gate.
+  const side = !dep && f.gate
+    ? `<span class="f-sub f-gate${moved ? " changed" : ""}">${arrivalGateHTML(f.gate)}</span>`
+    : "";
   return `<div class="flight${open ? " open" : ""}${live ? " live" : ""}" data-key="${esc(key)}">
     <button class="f-row" aria-expanded="${open}">
       <span class="live-tag" title="On the map now"><span class="sr-only">Live on map. </span></span>
@@ -242,7 +266,7 @@ function rowHTML(f) {
       <span class="f-city">${esc(f.city || f.ap)}</span>
       <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>${gate}</span>
       <span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>
-      ${note}
+      ${side}${note}
     </button>
     ${open ? detailHTML(f) : ""}
   </div>`;
