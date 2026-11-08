@@ -323,7 +323,13 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .track-btn:hover { background: rgba(255, 210, 63, 0.1); }
 
 .foot {
-  margin-top: auto; padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
+  margin-top: auto; padding: 20px 16px 8px;
+  color: var(--faint); font-size: 12px; line-height: 1.6; text-align: center;
+}
+
+/* Credit line: last thing on the page, on both tabs (below the map on the Tracker). */
+.credit {
+  flex: none; margin: 0; padding: 6px 16px calc(14px + env(safe-area-inset-bottom));
   color: var(--faint); font-size: 12px; line-height: 1.6; text-align: center;
 }
 
