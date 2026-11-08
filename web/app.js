@@ -108,6 +108,30 @@ function statusLabel(f) {
     .replace(/^New Gate\b/i, "New gate");
 }
 
+// ---------------------------------------------------------------- delays
+
+const DELAY_TAG_MIN = 15; // show a tag when 15+ minutes late or early
+
+/** Minutes between the actual (else estimated) time and the schedule; null when unknown or cancelled. */
+function delayMinutes(f) {
+  if (/cancel/i.test(`${f.raw || ""} ${f.status || ""}`)) return null;
+  const ts = f.ats || f.ets;
+  if (!ts || !f.d || !f.st) return null;
+  const actual = Date.parse(`${ts.trim().replace(" ", "T").slice(0, 16)}:00+08:00`);
+  const sched = Date.parse(`${f.d}T${f.st}:00+08:00`);
+  if (!Number.isFinite(actual) || !Number.isFinite(sched)) return null;
+  return Math.round((actual - sched) / 60e3);
+}
+
+function delayTagHTML(f) {
+  const m = delayMinutes(f);
+  if (m === null || Math.abs(m) < DELAY_TAG_MIN) return "";
+  const basis = f.ats ? "actual" : "estimated";
+  return m > 0
+    ? `<span class="delay-tag late" title="${basis} time is ${m} min later than scheduled">Delayed +${m}m</span>`
+    : `<span class="delay-tag early" title="${basis} time is ${-m} min earlier than scheduled">Early -${-m}m</span>`;
+}
+
 /** The time a row shows (estimated when Changi has one, else scheduled) and its sort key. */
 const shownTime = (f) => f.et || f.st;
 const effectiveTs = (f) => f.ets || `${f.d || ""} ${f.st || ""}`;
@@ -231,6 +255,7 @@ async function loadBoard(date, { quiet = false, fresh = false } = {}) {
   renderBoard();
   if (quiet && window.scrollY !== y) window.scrollTo(0, y);
   if (date === today) onTodayBoard();
+  if (state.pendingShare && date === currentDate()) resolveShareLink();
 }
 
 function currentDate() { return sgtDate(state.day); }
@@ -319,6 +344,7 @@ function detailHTML(f, dir = state.dir) {
   <div class="f-actions">
     ${state.day === 0 ? `<button class="track-btn" type="button" data-track="${esc(flightKey(f))}">${trackLabel(isLive(f, dir))}</button>` : ""}
     <button class="save-btn${saved ? " saved" : ""}" type="button" data-fav aria-pressed="${saved}">${STAR_SVG(saved)}${saved ? "Saved" : "Save flight"}</button>
+    <button class="save-btn share-btn" type="button" data-share>${SHARE_SVG}Share</button>
   </div>`;
 }
 
@@ -349,7 +375,7 @@ function rowHTML(f, dir = state.dir) {
       <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span></span>
       <span class="f-city">${esc(f.city || f.ap)}</span>
       <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>${gate}</span>
-      <span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>
+      <span class="f-status"><span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>${delayTagHTML(f)}</span>
       ${side}${note}
       <button class="fav-btn" type="button" data-fav aria-pressed="${saved}" aria-label="${saved ? "Remove" : "Save"} ${esc(f.fn)}${saved ? " from saved flights" : ""}" title="${saved ? "Saved" : "Save flight"}">${STAR_SVG(saved)}</button>
     </div>
@@ -527,6 +553,12 @@ function bindBoard() {
       e.stopPropagation();
       const f = findFlight(dir, row.dataset.key);
       if (f) toggleFav(dir, f);
+      return;
+    }
+    const share = e.target.closest("[data-share]");
+    if (share) {
+      const f = findFlight(dir, row.dataset.key);
+      if (f) shareFlight(dir, f);
       return;
     }
     const track = e.target.closest("[data-track]");
@@ -926,6 +958,9 @@ function notLiveMessage(f) {
     return `<span class="c-tag">Out of coverage</span> ${fn} has departed, but no community ADS-B receiver can see it right now. This is common over oceans and remote areas.`;
   }
   if (f.dir === "arr" && /landed|arrived/.test(s)) return `${fn} has landed and is no longer broadcasting its position.`;
+  if (f.dir === "arr" && f.lookup === "missing") {
+    return `<span class="c-tag">Out of coverage</span> ${fn} has no signal yet. That's common before it's within range of a community ADS-B receiver. It's due to land at ${esc(f.et || f.st)}.`;
+  }
   if (f.dir === "dep") {
     return `${fn} isn't airborne yet. It's due to depart at ${esc(f.et || f.st)}${f.gate ? ` from gate ${esc(f.gate)}` : ""}. It will appear here once it's airborne.`;
   }
@@ -1043,6 +1078,82 @@ function refreshNow({ manual = true } = {}) {
   return refreshing;
 }
 
+// ================================================================ share links
+//
+// ?flight=SQ123&day=2026-11-08&dir=arr opens the board on that day and direction,
+// scrolls to the flight, highlights it briefly and expands it. `day` also accepts
+// today / yesterday / tomorrow. Links use the flight's own date so a link shared
+// today still points at the same flight tomorrow.
+
+const SHARE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function shareUrl(f, dir) {
+  const q = new URLSearchParams({ flight: f.fn, day: f.d, dir });
+  return `${location.origin}${location.pathname}?${q}`;
+}
+
+async function shareFlight(dir, f) {
+  const url = shareUrl(f, dir);
+  const when = fmtDay.format(new Date(f.d + "T00:00:00Z"));
+  const text = dir === "dep"
+    ? `${f.fn} Singapore → ${f.city || f.ap}, departs ${shownTime(f)} on ${when}`
+    : `${f.fn} ${f.city || f.ap} → Singapore, arrives ${shownTime(f)} on ${when}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: `${f.fn} · flightlah`, text, url }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; /* else fall back to copying */ }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast("Link copied");
+  } catch {
+    toast(`Copy this link: ${url}`);
+  }
+}
+
+/** Read a share link from the URL (and remove it, so a reload doesn't repeat it). */
+function readShareLink() {
+  const q = new URLSearchParams(location.search);
+  const fn = (q.get("flight") || "").toUpperCase().replace(/\s+/g, "");
+  if (!fn) return null;
+  history.replaceState(null, "", location.pathname);
+  const dirRaw = (q.get("dir") || "").toLowerCase();
+  const dir = dirRaw === "dep" || dirRaw === "arr" ? dirRaw : null;
+  const dayRaw = (q.get("day") || "today").toLowerCase();
+  let offset = { yesterday: -1, today: 0, tomorrow: 1 }[dayRaw];
+  if (offset === undefined && /^\d{4}-\d{2}-\d{2}$/.test(dayRaw)) {
+    offset = Math.round((Date.parse(dayRaw) - Date.parse(sgtDate(0))) / 86400e3);
+  }
+  return { fn, dir, offset: Number.isFinite(offset) ? offset : NaN };
+}
+
+/** Once the linked day's board is loaded: open, scroll to and highlight the flight. */
+function resolveShareLink() {
+  const link = state.pendingShare;
+  const data = state.boards.get(currentDate());
+  if (!link || !data) return;
+  state.pendingShare = null;
+  const dirs = link.dir ? [link.dir] : ["dep", "arr"];
+  let found = null;
+  for (const dir of dirs) {
+    const f = (data[dir] || []).find((x) => (x.fn || "").toUpperCase() === link.fn);
+    if (f) { found = { dir, f }; break; }
+  }
+  if (!found) { toast("Flight not found for that day"); return; }
+  const { dir, f } = found;
+  const key = flightKey(f);
+  state.dir = dir;
+  setPressed("[data-dir]", "dir", state.dir);
+  state.open = new Set([key]);
+  if (isEarlier(f)) state.showEarlier = true;
+  renderBoard();
+  const row = $$(".flight").find((el) => el.dataset.key === key && el.dataset.dir === dir);
+  if (!row) return;
+  row.scrollIntoView({ block: "center" });
+  row.classList.add("flash");
+  setTimeout(() => row.classList.remove("flash"), 2600);
+  row.querySelector(".f-row").focus({ preventScroll: true });
+}
+
 // ================================================================ views
 
 function show(view) {
@@ -1070,6 +1181,24 @@ function init() {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && (tracker.selected || tracker.focus)) select(null); });
 
   $("#refresh").addEventListener("click", () => refreshNow());
+
+  // Opened from a share link: board tab, that direction and day, all terminals.
+  const link = readShareLink();
+  if (link) {
+    if (link.offset >= -1 && link.offset <= 1) {
+      state.view = "board";
+      state.day = link.offset;
+      if (link.dir) state.dir = link.dir;
+      state.term = "all";
+      state.q = "";
+      setPressed("[data-day]", "day", state.day);
+      setPressed("[data-dir]", "dir", state.dir);
+      setPressed("[data-term]", "term", state.term);
+      state.pendingShare = link;
+    } else {
+      toast("Flight not found for that day");
+    }
+  }
 
   loadBoard(currentDate());
   if (state.view === "board") loadTraffic(); // the Tracker fetches its own area when it starts
