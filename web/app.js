@@ -117,6 +117,82 @@ const termLabel = (t) => (t ? `T${t}` : "TBC");
 const termClass = (t) => (t ? `t${t}` : "tbc");
 const flightKey = (f) => `${f.fn}|${f.st}`;
 
+// ================================================================ favourites
+//
+// Saved flights live only in this browser (localStorage), never on the server.
+// Each entry is one flight on one day in one direction: { dir, fn, d, st }.
+
+const FAV_KEY = "flightlah_favs";
+const FAV_LIMIT = 5;
+const FAV_KEEP_DAYS = 2; // drop an entry 2 days after its date
+const STAR_SVG = (filled) =>
+  `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.85 5.98 6.55.79-4.83 4.5 1.27 6.48L12 17.33l-5.84 3.22 1.27-6.48-4.83-4.5 6.55-.79z" fill="${filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+
+function readFavs() {
+  try {
+    const v = JSON.parse(localStorage.getItem(FAV_KEY) || "[]");
+    return Array.isArray(v)
+      ? v.filter((x) => x && typeof x.fn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x.d) && (x.dir === "dep" || x.dir === "arr"))
+      : [];
+  } catch { return []; }
+}
+function writeFavs(list) {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(list)); } catch { /* private mode etc.: keep in memory */ }
+}
+/** Remove entries whose date is FAV_KEEP_DAYS or more days ago (SGT). */
+function pruneFavs(list) {
+  const cutoff = sgtDate(-FAV_KEEP_DAYS);
+  const kept = list.filter((x) => x.d > cutoff);
+  if (kept.length !== list.length) writeFavs(kept);
+  return kept;
+}
+let favs = [];
+
+const favId = (dir, f) => `${dir}|${f.fn}|${f.d}`;
+const isFav = (dir, f) => favs.some((x) => x.dir === dir && x.fn === f.fn && x.d === f.d);
+
+/** Star or unstar a flight. Refuses a 6th with a message rather than dropping one. */
+function toggleFav(dir, f) {
+  favs = pruneFavs(favs);
+  if (isFav(dir, f)) {
+    favs = favs.filter((x) => !(x.dir === dir && x.fn === f.fn && x.d === f.d));
+  } else if (favs.length >= FAV_LIMIT) {
+    toast("You can save up to 5 flights. Remove one to add another.");
+    return;
+  } else {
+    favs.push({ dir, fn: f.fn, d: f.d, st: f.st });
+  }
+  writeFavs(favs);
+  renderSavedChip();
+  renderBoard();
+}
+
+/** A small, self-dismissing message at the bottom of the screen. */
+let toastTimer;
+function toast(text) {
+  let el = $("#toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.className = "toast";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 4000);
+}
+
+/** The "Saved N" pill next to All / T1-T4 (added here so index.html stays unchanged). */
+function renderSavedChip() {
+  const chip = $('[data-term="saved"]');
+  if (!chip) return;
+  chip.innerHTML = `${STAR_SVG(state.term === "saved" || favs.length > 0)}<span>Saved</span>${favs.length ? `<span class="chip-count">${favs.length}</span>` : ""}`;
+  chip.setAttribute("aria-label", `Saved flights${favs.length ? `, ${favs.length}` : ""}`);
+}
+
 // ================================================================ state
 
 const state = {
@@ -159,13 +235,14 @@ async function loadBoard(date, { quiet = false, fresh = false } = {}) {
 
 function currentDate() { return sgtDate(state.day); }
 
-function filteredFlights(data) {
+function filteredFlights(data, dir = state.dir) {
   // Sort by the time each row shows, so retimed flights sit where their time says.
-  const list = [...((data && data[state.dir]) || [])]
+  const list = [...((data && data[dir]) || [])]
     .sort((a, b) => effectiveTs(a).localeCompare(effectiveTs(b)) || (a.fn || "").localeCompare(b.fn || ""));
   const q = state.q.trim().toLowerCase();
   return list.filter((f) => {
-    if (state.term !== "all" && f.t !== state.term) return false;
+    if (state.term === "saved") { if (!isFav(dir, f)) return false; }
+    else if (state.term !== "all" && f.t !== state.term) return false;
     if (!q) return true;
     const compactQ = q.replace(/\s+/g, "");
     return (
@@ -215,7 +292,7 @@ function gettingThereHTML(f, dep) {
   </section>`;
 }
 
-function detailHTML(f) {
+function detailHTML(f, dir = state.dir) {
   const kv = (k, v) => (v ? `<div class="kv"><dt>${esc(k)}</dt><dd>${v}</dd></div>` : "");
   const time = (hm, ts) => {
     if (!hm) return "";
@@ -223,7 +300,8 @@ function detailHTML(f) {
     return d && d !== f.d ? `${esc(hm)} <small>${esc(fmtDay.format(new Date(d + "T00:00:00Z")))}</small>` : esc(hm);
   };
   const place = `${esc(f.city || f.ap)} <small>${esc([f.ap, f.cc].filter(Boolean).join(" · "))}</small>`;
-  const dep = state.dir === "dep";
+  const dep = dir === "dep";
+  const saved = isFav(dir, f);
   return `<dl class="f-detail">
     ${kv(dep ? "To" : "From", place)}
     ${kv("Airline", esc(f.an || f.al))}
@@ -238,15 +316,19 @@ function detailHTML(f) {
     ${kv("Terminal", f.t ? `<span class="${termClass(f.t)}">T${esc(f.t)}</span>` : "Not assigned yet")}
   </dl>
   ${gettingThereHTML(f, dep)}
-  ${state.day === 0 ? `<div class="f-actions"><button class="track-btn" type="button" data-track="${esc(flightKey(f))}">${trackLabel(isLive(f))}</button></div>` : ""}`;
+  <div class="f-actions">
+    ${state.day === 0 ? `<button class="track-btn" type="button" data-track="${esc(flightKey(f))}">${trackLabel(isLive(f, dir))}</button>` : ""}
+    <button class="save-btn${saved ? " saved" : ""}" type="button" data-fav aria-pressed="${saved}">${STAR_SVG(saved)}${saved ? "Saved" : "Save flight"}</button>
+  </div>`;
 }
 
-function rowHTML(f) {
+function rowHTML(f, dir = state.dir) {
   const key = flightKey(f);
   const open = state.open.has(key);
   const changed = Boolean(f.et && f.et !== f.st);
-  const live = isLive(f);
-  const dep = state.dir === "dep";
+  const live = isLive(f, dir);
+  const dep = dir === "dep";
+  const saved = isFav(dir, f);
   // Flag the change on the row only while people may still be heading to the gate;
   // the detail keeps it after departure.
   const moved = gateChanged(f) && !isFinished(f);
@@ -258,8 +340,10 @@ function rowHTML(f) {
   const side = !dep && f.gate
     ? `<span class="f-sub f-gate${moved ? " changed" : ""}">${arrivalGateHTML(f.gate)}</span>`
     : "";
-  return `<div class="flight${open ? " open" : ""}${live ? " live" : ""}" data-key="${esc(key)}">
-    <button class="f-row" aria-expanded="${open}">
+  // The row is a focusable element acting as a button (Enter/Space open it), so the
+  // star can be a real button inside it without opening the row.
+  return `<div class="flight${open ? " open" : ""}${live ? " live" : ""}${saved ? " saved" : ""}" data-key="${esc(key)}" data-dir="${dir}">
+    <div class="f-row" role="button" tabindex="0" aria-expanded="${open}">
       <span class="live-tag" title="On the map now"><span class="sr-only">Live on map. </span></span>
       <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(shownTime(f))}</span>
       <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span></span>
@@ -267,8 +351,9 @@ function rowHTML(f) {
       <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>${gate}</span>
       <span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>
       ${side}${note}
-    </button>
-    ${open ? detailHTML(f) : ""}
+      <button class="fav-btn" type="button" data-fav aria-pressed="${saved}" aria-label="${saved ? "Remove" : "Save"} ${esc(f.fn)}${saved ? " from saved flights" : ""}" title="${saved ? "Saved" : "Save flight"}">${STAR_SVG(saved)}</button>
+    </div>
+    ${open ? detailHTML(f, dir) : ""}
   </div>`;
 }
 
@@ -300,7 +385,7 @@ function computeLive() {
 function updateLiveMarks() {
   if (state.view !== "board") return;
   for (const el of $$(".flight")) {
-    const live = state.day === 0 && tracker.live.has(`${state.dir}|${el.dataset.key}`);
+    const live = state.day === 0 && tracker.live.has(`${el.dataset.dir || state.dir}|${el.dataset.key}`);
     el.classList.toggle("live", live);
     const btn = el.querySelector(".track-btn");
     if (btn) btn.textContent = trackLabel(live);
@@ -352,6 +437,10 @@ function renderBoard() {
     return;
   }
 
+  favs = pruneFavs(favs);
+  renderSavedChip();
+  if (state.term === "saved") { renderSaved(data, box); return; }
+
   let list = filteredFlights(data);
   let hidden = 0;
   if (state.day === 0 && !state.q && !state.showEarlier) {
@@ -363,8 +452,25 @@ function renderBoard() {
   const more = hidden ? `<button class="more" data-act="earlier">Show ${hidden} earlier flight${hidden === 1 ? "" : "s"}</button>` : "";
   const less = state.day === 0 && state.showEarlier && !state.q ? `<button class="more" data-act="later">Hide earlier flights</button>` : "";
   box.innerHTML = list.length
-    ? more + less + list.map(rowHTML).join("")
+    ? more + less + list.map((f) => rowHTML(f)).join("")
     : more + `<p class="empty">${state.q ? "No flights match your search." : "No flights."}</p>`;
+}
+
+/** Saved view: the selected day's starred flights, departures and arrivals together. */
+function renderSaved(data, box) {
+  const sections = [["dep", "Departures"], ["arr", "Arrivals"]]
+    .map(([dir, title]) => ({ dir, title, list: filteredFlights(data, dir) }))
+    .filter((s) => s.list.length);
+  if (sections.length) {
+    box.innerHTML = sections.map((s) =>
+      `<h2 class="saved-head">${s.title}</h2>${s.list.map((f) => rowHTML(f, s.dir)).join("")}`).join("");
+    return;
+  }
+  let msg;
+  if (state.q) msg = "No saved flights match your search.";
+  else if (!favs.length) msg = "No saved flights yet. Tap the star on a flight.";
+  else msg = `No saved flights on this day. You have ${favs.length} saved on other days.`;
+  box.innerHTML = `<p class="empty">${msg}</p>`;
 }
 
 function setPressed(sel, attr, val) {
@@ -372,13 +478,30 @@ function setPressed(sel, attr, val) {
 }
 
 function bindBoard() {
+  // "Saved" pill, next to All / T1-T4.
+  const chips = $(".chips");
+  if (chips && !$('[data-term="saved"]')) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.dataset.term = "saved";
+    chip.className = "chip-saved";
+    chip.setAttribute("aria-pressed", "false");
+    chips.appendChild(chip);
+  }
+  favs = pruneFavs(readFavs());
+  renderSavedChip();
+  // Saved in another tab: pick it up here too.
+  window.addEventListener("storage", (e) => {
+    if (e.key === FAV_KEY) { favs = pruneFavs(readFavs()); renderSavedChip(); renderBoard(); }
+  });
+
   $$("[data-dir]").forEach((b) => b.addEventListener("click", () => {
     state.dir = b.dataset.dir; store.set("dir", state.dir); state.open.clear();
     setPressed("[data-dir]", "dir", state.dir); renderBoard();
   }));
   $$("[data-term]").forEach((b) => b.addEventListener("click", () => {
     state.term = b.dataset.term; store.set("term", state.term);
-    setPressed("[data-term]", "term", state.term); renderBoard();
+    setPressed("[data-term]", "term", state.term); renderSavedChip(); renderBoard();
   }));
   $$("[data-day]").forEach((b) => b.addEventListener("click", () => {
     state.day = Number(b.dataset.day); state.open.clear(); state.showEarlier = false;
@@ -395,16 +518,45 @@ function bindBoard() {
   $("#board").addEventListener("click", (e) => {
     const act = e.target.closest("[data-act]");
     if (act) { state.showEarlier = act.dataset.act === "earlier"; renderBoard(); return; }
-    const track = e.target.closest("[data-track]");
-    if (track) { trackFlight(state.dir, track.dataset.track); return; }
     const row = e.target.closest(".flight");
     if (!row) return;
-    const k = row.dataset.key;
-    state.open.has(k) ? state.open.delete(k) : state.open.add(k);
-    renderBoard();
+    const dir = row.dataset.dir || state.dir;
+    const fav = e.target.closest("[data-fav]");
+    if (fav) {
+      // Star / Save button: never opens or closes the row.
+      e.stopPropagation();
+      const f = findFlight(dir, row.dataset.key);
+      if (f) toggleFav(dir, f);
+      return;
+    }
+    const track = e.target.closest("[data-track]");
+    if (track) { trackFlight(dir, track.dataset.track); return; }
+    toggleRow(row.dataset.key);
+  });
+  // Keyboard: rows act as buttons (Enter / Space); the star is a real button.
+  $("#board").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const rowEl = e.target.closest(".f-row");
+    if (!rowEl || e.target !== rowEl) return;
+    e.preventDefault();
+    const key = rowEl.parentElement.dataset.key;
+    toggleRow(key);
+    const again = $$(".flight").find((el) => el.dataset.key === key);
+    if (again) again.querySelector(".f-row").focus();
   });
   setPressed("[data-dir]", "dir", state.dir);
   setPressed("[data-term]", "term", state.term);
+}
+
+function toggleRow(k) {
+  state.open.has(k) ? state.open.delete(k) : state.open.add(k);
+  renderBoard();
+}
+
+/** A flight on the board currently shown (any day), by direction and row key. */
+function findFlight(dir, key) {
+  const data = state.boards.get(currentDate());
+  return ((data && data[dir]) || []).find((f) => flightKey(f) === key) || null;
 }
 
 // ================================================================ tracker
@@ -554,7 +706,8 @@ function viewOnBoard(f) {
   state.dir = f.dir; store.set("dir", state.dir);
   state.day = 0;
   state.q = ""; $("#search").value = "";
-  if (state.term !== "all" && state.term !== f.t) { state.term = "all"; store.set("term", state.term); }
+  const keepSaved = state.term === "saved" && isFav(f.dir, f);
+  if (state.term !== "all" && state.term !== f.t && !keepSaved) { state.term = "all"; store.set("term", state.term); }
   state.open = new Set([key]);
   if (isEarlier(f)) state.showEarlier = true;
   setPressed("[data-dir]", "dir", state.dir);
