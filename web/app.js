@@ -295,6 +295,106 @@ const doorLabel = (v) => `${/^\s*\d+\s*[-–,]/.test(v) ? "Doors" : "Door"} ${v}
 /** Departures only: a published gate that differs from the previous one (L/R ignored by the Worker). */
 const gateChanged = (f) => Boolean(f.gate && f.gate_was);
 
+// Ground handler per airline (IATA code), one line each so it's easy to edit.
+const GHA = {
+  // Source: Changi Airport official airline information page, 8 Nov 2026.
+  // APS = SATS Asia-Pacific Star (SATS' LCC handling brand).
+  // Contracts change hands, so this may go stale. Re-check the Changi page.
+  "2W": "SATS",
+  "3U": "SATS",
+  "5J": "dnata",
+  "6E": "dnata",
+  "7C": "dnata",
+  "8B": "APS",
+  "8G": "dnata",
+  "8M": "dnata",
+  "9C": "GTRSG",
+  "9G": "GTRSG",
+  "AC": "SATS",
+  "AF": "dnata",
+  "AI": "SATS",
+  "AK": "GTRSG",
+  "AQ": "GTRSG",
+  "AY": "dnata",
+  "BA": "SATS",
+  "BG": "SATS",
+  "BI": "dnata",
+  "BR": "SATS",
+  "BS": "SATS",
+  "CA": "SATS",
+  "CI": "dnata",
+  "CX": "GTRSG",
+  "CZ": "SATS",
+  "DV": "SATS",
+  "E9": "SATS",
+  "EK": "dnata",
+  "ET": "SATS",
+  "EY": "dnata",
+  "FD": "GTRSG",
+  "FJ": "SATS",
+  "FM": "SATS",
+  "FY": "APS",
+  "GA": "dnata",
+  "GF": "SATS",
+  "GJ": "GTRSG",
+  "GS": "dnata",
+  "HO": "dnata",
+  "HU": "GTRSG",
+  "ID": "APS",
+  "IP": "GTRSG",
+  "IX": "SATS",
+  "JL": "SATS",
+  "JQ": "GTRSG",
+  "JX": "SATS",
+  "KB": "dnata",
+  "KE": "GTRSG",
+  "KL": "dnata",
+  "KR": "GTRSG",
+  "LH": "SATS",
+  "LX": "SATS",
+  "MF": "SATS",
+  "MH": "SATS",
+  "MM": "APS",
+  "MU": "SATS",
+  "MY": "dnata",
+  "NH": "SATS",
+  "NX": "GTRSG",
+  "NZ": "SATS",
+  "OD": "APS",
+  "OM": "GTRSG",
+  "OQ": "SATS",
+  "OZ": "SATS",
+  "PG": "dnata",
+  "PN": "GTRSG",
+  "PR": "SATS",
+  "PX": "SATS",
+  "QF": "SATS",
+  "QG": "dnata",
+  "QR": "SATS",
+  "SB": "dnata",
+  "SC": "SATS",
+  "SL": "APS",
+  "SQ": "SATS",
+  "SV": "SATS",
+  "TG": "SATS",
+  "TK": "SATS",
+  "TR": "APS",
+  "TW": "APS",
+  "UA": "SATS",
+  "UB": "dnata",
+  "UL": "dnata",
+  "VJ": "GTRSG",
+  "VN": "SATS",
+  "WY": "dnata",
+  "ZG": "SATS",
+  "ZH": "SATS",
+};
+
+/** Ground handler for a flight's airline, or null when the airline isn't in GHA. */
+const groundHandler = (f) => (f && f.al && Object.prototype.hasOwnProperty.call(GHA, f.al) ? GHA[f.al] : null);
+/** Longer name for the expanded detail (rows just show the short name). */
+const GHA_DETAIL_NAMES = { APS: "APS (SATS budget arm)" };
+
 // Terminal side for an arrival gate, from the gate's first letter (static lookup;
 // T4's G/H gates have no side). Letters are unique across T1-T3.
 const GATE_SIDES = {
@@ -340,6 +440,7 @@ function detailHTML(f, dir = state.dir) {
   return `<dl class="f-detail">
     ${kv(dep ? "To" : "From", place)}
     ${kv("Airline", esc(f.an || f.al))}
+    ${groundHandler(f) ? kv("Ground handler", `<span class="gha-detail">${esc(GHA_DETAIL_NAMES[groundHandler(f)] || groundHandler(f))}</span>`) : ""}
     ${dep ? kv("Gate", f.gate
       ? `${esc(f.gate)}${gateChanged(f) ? `<small class="gate-was">Gate changed, was ${esc(f.gate_was)}</small>` : ""}`
       : "—") : (f.gate ? kv("Gate", `${arrivalGateHTML(f.gate)}${gateChanged(f) ? `<small class="gate-was">Gate changed, was ${esc(f.gate_was)}</small>` : ""}`) : "") + kv("Belt", f.belt ? `${esc(f.belt)}${f.belt_status ? ` <small>${esc(f.belt_status)}</small>` : ""}` : "—")}
@@ -373,8 +474,9 @@ function rowHTML(f, dir = state.dir) {
     : "";
   const note = moved ? `<span class="f-note">Gate changed, was ${esc(f.gate_was)}</span>` : "";
   // Arrivals: terminal side and gate on a second line, only once Changi publishes the gate.
+  const gha = groundHandler(f);
   const side = !dep && f.gate
-    ? `<span class="f-sub f-gate${moved ? " changed" : ""}">${arrivalGateHTML(f.gate)}</span>`
+    ? `<span class="f-sub f-gate${moved ? " changed" : ""}">${arrivalGateHTML(f.gate)}${gha ? ` · <span class="f-gha" title="Ground handler">${esc(gha)}</span>` : ""}</span>`
     : "";
   // The row is a focusable element acting as a button (Enter/Space open it), so the
   // star can be a real button inside it without opening the row.

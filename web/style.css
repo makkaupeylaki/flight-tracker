@@ -254,6 +254,10 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .f-gate { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 .f-gate.changed { color: var(--warn); font-weight: 600; }
 .f-note { grid-column: 2 / -1; grid-row: 2; margin-top: 3px; color: var(--warn); font-size: 12px; line-height: 1.3; }
+/* Ground handler: muted, on the arrival gate line and in the detail. */
+.f-gha { color: var(--muted); font-weight: 400; }
+.kv dd .gha-detail { color: var(--muted); }
+
 /* Arrival gate line ("T2 North · Gate E8"): same look as the departure gate label, under flight + city. */
 .f-sub { grid-column: 2 / -1; grid-row: 2; margin-top: 3px; line-height: 1.3; }
 .f-sub ~ .f-note { grid-row: 3; margin-top: 1px; }
