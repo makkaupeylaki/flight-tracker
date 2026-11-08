@@ -126,6 +126,9 @@ function delayMinutes(f) {
 function delayTagHTML(f) {
   const m = delayMinutes(f);
   if (m === null || Math.abs(m) < DELAY_TAG_MIN) return "";
+  // "Early" only helps before landing (e.g. leave sooner for a pickup); once landed,
+  // the pill already shows the landing time. Delays always show.
+  if (m < 0 && /landed|arrived/i.test(`${f.raw || ""} ${f.status || ""}`)) return "";
   const basis = f.ats ? "actual" : "estimated";
   return m > 0
     ? `<span class="delay-tag late" title="${basis} time is ${m} min later than scheduled">Delayed +${m}m</span>`
