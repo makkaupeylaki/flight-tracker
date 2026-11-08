@@ -561,6 +561,28 @@ function isEarlier(f) {
   return m !== null && m < Date.now() / 60e3 - EARLIER_GRACE_MIN;
 }
 
+// Wide screens (900px+): departures and arrivals side by side instead of the toggle.
+const WIDE_MQ = window.matchMedia("(min-width: 900px)");
+const isWide = () => WIDE_MQ.matches;
+const DIRS = [["dep", "Departures"], ["arr", "Arrivals"]];
+
+/** One board column (wide screens): heading, earlier-flights toggle, rows or an empty note. */
+function columnHTML(dir, title, data) {
+  let list = filteredFlights(data, dir);
+  let hidden = 0;
+  if (state.day === 0 && !state.q && !state.showEarlier) {
+    const keep = list.filter((f) => !isEarlier(f));
+    hidden = list.length - keep.length;
+    list = keep;
+  }
+  const more = hidden ? `<button class="more" data-act="earlier">Show ${hidden} earlier flight${hidden === 1 ? "" : "s"}</button>` : "";
+  const less = state.day === 0 && state.showEarlier && !state.q ? `<button class="more" data-act="later">Hide earlier flights</button>` : "";
+  const body = list.length
+    ? more + less + list.map((f) => rowHTML(f, dir)).join("")
+    : more + `<p class="empty">${state.q ? "No flights match your search." : "No flights."}</p>`;
+  return `<section class="board-col" aria-label="${title}"><h2 class="col-head">${title}</h2>${body}</section>`;
+}
+
 function renderBoard() {
   const date = currentDate();
   const data = state.boards.get(date);
@@ -578,6 +600,10 @@ function renderBoard() {
   favs = pruneFavs(favs);
   renderSavedChip();
   if (state.term === "saved") { renderSaved(data, box); return; }
+  if (isWide()) {
+    box.innerHTML = `<div class="cols">${DIRS.map(([dir, title]) => columnHTML(dir, title, data)).join("")}</div>`;
+    return;
+  }
 
   let list = filteredFlights(data);
   let hidden = 0;
@@ -599,6 +625,14 @@ function renderSaved(data, box) {
   const sections = [["dep", "Departures"], ["arr", "Arrivals"]]
     .map(([dir, title]) => ({ dir, title, list: filteredFlights(data, dir) }))
     .filter((s) => s.list.length);
+  if (sections.length && isWide()) {
+    box.innerHTML = `<div class="cols">${DIRS.map(([dir, title]) => {
+      const s = sections.find((x) => x.dir === dir);
+      const body = s ? s.list.map((f) => rowHTML(f, dir)).join("") : `<p class="empty">No saved ${title.toLowerCase()} on this day.</p>`;
+      return `<section class="board-col" aria-label="${title}"><h2 class="col-head">${title}</h2>${body}</section>`;
+    }).join("")}</div>`;
+    return;
+  }
   if (sections.length) {
     box.innerHTML = sections.map((s) =>
       `<h2 class="saved-head">${s.title}</h2>${s.list.map((f) => rowHTML(f, s.dir)).join("")}`).join("");
@@ -1293,6 +1327,9 @@ function init() {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && (tracker.selected || tracker.focus)) select(null); });
 
   $("#refresh").addEventListener("click", () => refreshNow());
+  const onWideChange = () => { if (state.view === "board") renderBoard(); };
+  if (WIDE_MQ.addEventListener) WIDE_MQ.addEventListener("change", onWideChange);
+  else if (WIDE_MQ.addListener) WIDE_MQ.addListener(onWideChange);
 
   // Opened from a share link: board tab, that direction and day, all terminals.
   const link = readShareLink();
