@@ -11,7 +11,9 @@ const API = (() => {
 
 const CHANGI = [1.3644, 103.9915];
 const BOARD_REFRESH_MS = 60e3;
-const TRAFFIC_REFRESH_MS = 15e3;
+const TRAFFIC_REFRESH_MS = 15e3; // tracker tab
+const BOARD_TRAFFIC_REFRESH_MS = 60e3; // board tab: only to mark live flights, so slower
+const TRAFFIC_MAX_AGE_MS = 3 * 60e3; // drop live marks if positions are older than this
 const EARLIER_GRACE_MIN = 60; // today: hide finished flights older than this
 
 // ICAO airline designator (callsign prefix) -> IATA code used on the board.
@@ -26,6 +28,9 @@ const ICAO_TO_IATA = {
   XAX: "D7", RBA: "BI", MMA: "8M", AMU: "NX", DKH: "HO", CQH: "9C", APJ: "MM", PIA: "PK",
   KQA: "KQ", ACA: "AC", AUA: "OS", SAS: "SK",
 };
+
+// IATA codes whose callsign prefix is in the map above (used to rule out false matches).
+const KNOWN_IATA = new Set(Object.values(ICAO_TO_IATA));
 
 // ================================================================ utils
 
@@ -154,15 +159,17 @@ function detailHTML(f) {
     ${kv("Aircraft", esc(f.ac) || "—")}
     ${kv("Terminal", f.t ? `<span class="${termClass(f.t)}">T${esc(f.t)}</span>` : "Not assigned yet")}
   </dl>
-  ${state.day === 0 ? `<div class="f-actions"><button class="track-btn" type="button" data-track="${esc(flightKey(f))}">Track on map</button></div>` : ""}`;
+  ${state.day === 0 ? `<div class="f-actions"><button class="track-btn" type="button" data-track="${esc(flightKey(f))}">${trackLabel(isLive(f))}</button></div>` : ""}`;
 }
 
 function rowHTML(f) {
   const key = flightKey(f);
   const open = state.open.has(key);
   const changed = f.et && f.et !== f.st && !isFinished(f);
-  return `<div class="flight${open ? " open" : ""}" data-key="${esc(key)}">
+  const live = isLive(f);
+  return `<div class="flight${open ? " open" : ""}${live ? " live" : ""}" data-key="${esc(key)}">
     <button class="f-row" aria-expanded="${open}">
+      <span class="live-tag" title="On the map now"><span class="sr-only">Live on map. </span></span>
       <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(changed ? f.et : f.st)}</span>
       <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span><span class="f-al">${esc(f.an || "")}</span></span>
       <span class="f-city">${esc(f.city || f.ap)}</span>
@@ -171,6 +178,41 @@ function rowHTML(f) {
     </button>
     ${open ? detailHTML(f) : ""}
   </div>`;
+}
+
+// ---------------------------------------------------------------- live marks
+
+const liveKey = (dir, f) => `${dir}|${flightKey(f)}`;
+const trackLabel = (live) => (live ? "See it live →" : "Track on map");
+
+/** Is this board flight's plane on the map right now? Only meaningful for today. */
+function isLive(f, dir = state.dir) {
+  return state.day === 0 && tracker.live.has(liveKey(dir, f));
+}
+
+/** Rebuild the set of board flights that have a plane in the latest positions. */
+function computeLive() {
+  const fresh = Date.now() - tracker.trafficAt < TRAFFIC_MAX_AGE_MS;
+  const live = new Set();
+  if (fresh && tracker.index) {
+    for (const ac of tracker.traffic) {
+      const f = matchFlight(ac.cs);
+      if (f) live.add(liveKey(f.dir, f));
+    }
+  }
+  tracker.live = live;
+  updateLiveMarks();
+}
+
+/** Update live dots and track buttons in place, without re-rendering the board. */
+function updateLiveMarks() {
+  if (state.view !== "board") return;
+  for (const el of $$(".flight")) {
+    const live = state.day === 0 && tracker.live.has(`${state.dir}|${el.dataset.key}`);
+    el.classList.toggle("live", live);
+    const btn = el.querySelector(".track-btn");
+    if (btn) btn.textContent = trackLabel(live);
+  }
 }
 
 function renderUpdated(data) {
@@ -268,6 +310,9 @@ const tracker = {
   index: null, // matching index built from today's board
   focus: null, // board flight the user asked to track: { ...flight, dir, checked }
   cardFlight: null, // board flight shown on the card, for "View on board"
+  traffic: [], // latest aircraft positions
+  trafficAt: 0, // when they were fetched (ms)
+  live: new Set(), // liveKey()s of board flights whose plane is in `traffic`
 };
 
 const PLANE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.8 0 1.3.8 1.3 1.9V9l7.7 4.4v1.9l-7.7-2.4v4.6l2.1 1.6V21L12 20.1 8.6 21v-1.9l2.1-1.6v-4.6L3 15.3v-1.9L10.7 9V3.9C10.7 2.8 11.2 2 12 2z"/></svg>`;
@@ -286,6 +331,7 @@ function onTodayBoard() {
     }
   }
   tracker.index = { byExact, byNum };
+  computeLive();
   if (tracker.selected || tracker.focus) renderCard();
 }
 
@@ -301,20 +347,30 @@ function matchFlight(cs) {
   if (!m) return null;
   const [, icao, num] = m;
   const nowMin = Date.now() / 60e3;
+  // A plane within ~25 nm of Changi is minutes from landing or from take-off,
+  // so only flights whose (actual/estimated/scheduled) time is near now can match.
+  // Generous windows absorb feed lag (e.g. "Gate Closed" while already airborne).
+  const plausible = (f) => {
+    const t = flightTimeMin(f);
+    if (t === null) return false;
+    return f.dir === "dep" ? t >= nowMin - 180 && t <= nowMin + 30 : t >= nowMin - 60 && t <= nowMin + 90;
+  };
   const closest = (list) => list
-    .map((f) => ({ f, d: Math.abs((flightTimeMin(f) ?? nowMin) - nowMin) }))
+    .filter(plausible)
+    .map((f) => ({ f, d: Math.abs(flightTimeMin(f) - nowMin) }))
     .sort((a, b) => a.d - b.d)[0];
   const iata = ICAO_TO_IATA[icao];
   if (iata) {
     const hit = tracker.index.byExact.get(`${iata}${num}`);
-    if (hit) return closest(hit).f;
+    const best = hit && closest(hit);
+    return best ? best.f : null;
   }
-  // Fallback for carriers missing from the map: match the numeric part only,
-  // and only if that flight is scheduled within a few hours of now.
-  if (iata) return null;
-  const cand = tracker.index.byNum.get(num);
-  const best = cand && closest(cand);
-  return best && best.d < 3 * 60 ? best.f : null;
+  // Fallback for carriers missing from the map: match the numeric part only.
+  // Skip airlines whose callsign prefix we do know (an SQ flight always flies
+  // as SIA..., so "MYU912" can never be SQ912).
+  const cand = (tracker.index.byNum.get(num) || []).filter((f) => !KNOWN_IATA.has(f.al));
+  const best = closest(cand);
+  return best ? best.f : null;
 }
 
 const sameFlight = (a, b) => Boolean(a && b && a.dir === b.dir && a.fn === b.fn && a.st === b.st);
@@ -403,19 +459,24 @@ function updatePlane(entry) {
   box.firstElementChild.style.transform = `rotate(${ac.trk ?? 0}deg)`;
 }
 
+/** Fetch aircraft positions: drives the map on the Tracker tab and live marks on the board. */
 async function loadTraffic() {
-  if (state.view !== "tracker" || document.hidden) return;
+  if (document.hidden) return;
+  if (state.view === "board" && state.day !== 0) return; // live marks only apply to today
   const note = $("#map-note");
   try {
     const data = await getJSON("/api/traffic");
     note.hidden = !data.stale;
     if (data.stale) note.textContent = "Positions delayed";
-    applyTraffic(data.ac || []);
+    tracker.traffic = data.ac || [];
+    tracker.trafficAt = data.at || Date.now();
+    applyTraffic(tracker.traffic);
   } catch (e) {
     note.hidden = false;
     note.textContent = "Live positions unavailable";
     if (tracker.focus) { tracker.focus.checked = true; tracker.focus.failed = true; renderCard(); }
   }
+  computeLive();
 }
 
 function applyTraffic(list) {
@@ -576,6 +637,10 @@ function init() {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && (tracker.selected || tracker.focus)) select(null); });
 
   loadBoard(currentDate());
+  loadTraffic();
+  setInterval(() => {
+    if (state.view === "board") loadTraffic();
+  }, BOARD_TRAFFIC_REFRESH_MS);
   setInterval(() => {
     if (document.hidden) return;
     // Board view: refresh what's shown. Tracker: keep today's board fresh for matching.
@@ -583,7 +648,8 @@ function init() {
   }, BOARD_REFRESH_MS);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
-    if (state.view === "tracker") loadTraffic(); else loadBoard(currentDate(), { quiet: true });
+    if (state.view === "board") loadBoard(currentDate(), { quiet: true });
+    loadTraffic();
   });
 
   show(state.view);
