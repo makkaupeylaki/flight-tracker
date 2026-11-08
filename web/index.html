@@ -37,6 +37,7 @@
 
   <main>
     <section id="view-board" class="view" role="tabpanel" aria-labelledby="tab-board">
+      <p class="intro">Live departures and arrivals for Singapore Changi Airport, plus a live plane tracker.</p>
       <div class="controls">
         <div class="row">
           <div class="seg" role="group" aria-label="Direction">
@@ -78,6 +79,7 @@
 
     <section id="view-tracker" class="view" role="tabpanel" aria-labelledby="tab-tracker" hidden>
       <div id="map" class="map" aria-label="Map of aircraft near Changi"></div>
+      <div id="map-loading" class="map-note map-loading" role="status" hidden><span class="dot-spin" aria-hidden="true"></span>Loading map…</div>
       <div id="map-note" class="map-note" hidden></div>
       <article id="card" class="card" aria-live="polite" aria-hidden="true">
         <button class="card-close" type="button" aria-label="Close">×</button>

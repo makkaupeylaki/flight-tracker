@@ -186,6 +186,15 @@ export function normalise(f) {
   };
 }
 
+/**
+ * The time the board shows for a flight, as a sortable "yyyy-MM-dd HH:mm":
+ * the estimated time when Changi has one, else the scheduled time. Using the
+ * full timestamp keeps cross-midnight estimates in the right place.
+ */
+export function effectiveTs(f) {
+  return f.ets || `${f.d || ""} ${f.st || ""}`;
+}
+
 function prepare(raw) {
   const seen = new Set();
   return raw
@@ -199,7 +208,7 @@ function prepare(raw) {
       seen.add(k);
       return true;
     })
-    .sort((a, b) => (a.st || "").localeCompare(b.st || "") || a.fn.localeCompare(b.fn));
+    .sort((a, b) => effectiveTs(a).localeCompare(effectiveTs(b)) || a.fn.localeCompare(b.fn));
 }
 
 /** Fetch the full board (terminals 1-4 plus unassigned) for a date. Throws on upstream failure. */

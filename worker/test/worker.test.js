@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker, { refreshBoard } from "../src/index.js";
-import { normalise, sgtToday, addDays, gateBase } from "../src/changi.js";
+import { normalise, sgtToday, addDays, gateBase, effectiveTs } from "../src/changi.js";
 import { makeKV, installCaches, makeCtx } from "./harness.js";
 
 installCaches();
@@ -56,6 +56,20 @@ test("gate change ignores the hold-room L/R suffix and unpublished gates", () =>
   assert.equal(arr.pick_door, "1-6 (Basement 1)");
   assert.equal(arr.carpark, "Car Park 2A");
   assert.equal(normalise({ ...base, drop_off_door: "3" }).drop_door, "3");
+});
+
+test("board is sorted by the displayed (estimated, else scheduled) time", async () => {
+  const env = { BOARD_KV: makeKV() };
+  const at = (fn, st, ets) => ({ ...flight(fn, "1"), scheduled_time: st, estimated_timestamp: ets });
+  mockChangi([
+    at("SQ1", "07:00", `${today} 09:10`),          // retimed later
+    at("SQ2", "08:00", null),                      // no estimate
+    at("SQ3", "08:30", `${today} 08:20`),          // a little early
+    at("SQ4", "00:05", `${addDays(today, -1)} 23:50`), // estimate on the previous day
+  ]);
+  const { board } = await refreshBoard(env, today);
+  assert.deepEqual(board.dep.map((f) => f.fn), ["SQ4", "SQ2", "SQ3", "SQ1"]);
+  assert.equal(effectiveTs({ d: today, st: "08:00", ets: null }), `${today} 08:00`);
 });
 
 test("addDays crosses month boundaries", () => {

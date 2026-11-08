@@ -85,6 +85,18 @@ function statusClass(f) {
 }
 const isFinished = (f) => /depart|landed|arrived|cancel/i.test(`${f.raw} ${f.status}`);
 
+/** Shorter status text that always keeps the time/gate: "Gate Info at 15:05" -> "Gate info 15:05". */
+function statusLabel(f) {
+  const s = f.status || "Scheduled";
+  return s
+    .replace(/^Gate Info at\s+/i, "Gate info ")
+    .replace(/^New Gate\b/i, "New gate");
+}
+
+/** The time a row shows (estimated when Changi has one, else scheduled) and its sort key. */
+const shownTime = (f) => f.et || f.st;
+const effectiveTs = (f) => f.ets || `${f.d || ""} ${f.st || ""}`;
+
 // Terminals: "1"-"4", or null when the feed hasn't assigned one yet.
 const termLabel = (t) => (t ? `T${t}` : "TBC");
 const termClass = (t) => (t ? `t${t}` : "tbc");
@@ -133,7 +145,9 @@ async function loadBoard(date, { quiet = false, fresh = false } = {}) {
 function currentDate() { return sgtDate(state.day); }
 
 function filteredFlights(data) {
-  const list = (data && data[state.dir]) || [];
+  // Sort by the time each row shows, so retimed flights sit where their time says.
+  const list = [...((data && data[state.dir]) || [])]
+    .sort((a, b) => effectiveTs(a).localeCompare(effectiveTs(b)) || (a.fn || "").localeCompare(b.fn || ""));
   const q = state.q.trim().toLowerCase();
   return list.filter((f) => {
     if (state.term !== "all" && f.t !== state.term) return false;
@@ -195,7 +209,7 @@ function detailHTML(f) {
 function rowHTML(f) {
   const key = flightKey(f);
   const open = state.open.has(key);
-  const changed = f.et && f.et !== f.st && !isFinished(f);
+  const changed = Boolean(f.et && f.et !== f.st);
   const live = isLive(f);
   const dep = state.dir === "dep";
   // Flag the change on the row only while people may still be heading to the gate;
@@ -208,11 +222,11 @@ function rowHTML(f) {
   return `<div class="flight${open ? " open" : ""}${live ? " live" : ""}" data-key="${esc(key)}">
     <button class="f-row" aria-expanded="${open}">
       <span class="live-tag" title="On the map now"><span class="sr-only">Live on map. </span></span>
-      <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(changed ? f.et : f.st)}</span>
+      <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(shownTime(f))}</span>
       <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span><span class="f-al">${esc(f.an || "")}</span></span>
       <span class="f-city">${esc(f.city || f.ap)}</span>
       <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>${gate}</span>
-      <span class="pill ${statusClass(f)}">${esc(f.status)}</span>
+      <span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>
       ${note}
     </button>
     ${open ? detailHTML(f) : ""}
@@ -268,9 +282,13 @@ function renderUpdated(data) {
   const old = Date.now() - data.updatedAt > OLD_DATA_MS;
   const stale = data.stale || state.error;
   el.title = `Flight data as of ${dataTime} SGT`;
-  el.innerHTML = `Last updated ${esc(t)} SGT`
-    + (old && !stale ? ` · data from ${esc(dataTime)}` : "")
-    + (stale ? ` · <span class="stale" title="${esc(data.error || state.error || "")}">data may be stale</span>` : "");
+  // One line: when the page last updated, then the most useful second fact.
+  const tail = stale
+    ? `<span class="stale" title="${esc(data.error || state.error || "")}">data may be stale</span>`
+    : old
+      ? `data from ${esc(dataTime)}`
+      : `auto-refreshes every ${AUTO_REFRESH_MS / 60e3} min`;
+  el.innerHTML = `Updated ${esc(t)} SGT · ${tail}`;
 }
 
 /** Today's finished flights older than the grace period are tucked away. */
@@ -478,10 +496,23 @@ function viewOnBoard(f) {
 function initMap() {
   if (tracker.map || !window.L) return;
   const map = L.map("map", { center: CHANGI, zoom: 10, zoomControl: true, attributionControl: true });
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://adsb.lol">adsb.lol</a>',
-  }).addTo(map);
+  });
+  // "Loading map…" until the visible tiles have loaded (or failed), with a safety timeout.
+  const loading = $("#map-loading");
+  let loadingTimer;
+  const doneLoading = () => { clearTimeout(loadingTimer); loading.hidden = true; };
+  tiles.on("loading", () => {
+    loading.hidden = false;
+    clearTimeout(loadingTimer);
+    loadingTimer = setTimeout(doneLoading, 15e3);
+  });
+  tiles.on("load", doneLoading);
+  loading.hidden = false;
+  loadingTimer = setTimeout(doneLoading, 15e3);
+  tiles.addTo(map);
   L.marker(CHANGI, {
     icon: L.divIcon({ className: "", html: '<div class="home-dot" title="Singapore Changi (SIN)"></div>', iconSize: [12, 12] }),
     interactive: false, keyboard: false,
@@ -556,7 +587,7 @@ function applyTraffic(list) {
       const marker = L.marker([ac.lat, ac.lon], {
         icon: planeIcon(ac, false, onBoard),
         keyboard: true,
-        title: ac.cs || ac.hex,
+        title: ac.cs || "Unknown flight",
         riseOnHover: true,
       }).addTo(tracker.map);
       entry = { marker, ac, onBoard };
@@ -602,7 +633,7 @@ function routeHTML(f) {
   const to = f.dir === "dep" ? f.city || f.ap : "Singapore";
   const time = f.dir === "dep" ? "Departs" : "Arrives";
   return `<p class="c-route">${esc(from)} → ${esc(to)}</p>
-    <p class="c-route"><small>${esc(f.fn)} · ${esc(f.an || f.al)} · ${time} ${esc(f.et || f.st)} · ${esc(f.status)}</small></p>`;
+    <p class="c-route"><small>${esc(f.fn)} · ${esc(f.an || f.al)} · ${time} ${esc(f.et || f.st)} · ${esc(statusLabel(f))}</small></p>`;
 }
 
 /** Friendly explanation when a tracked flight has no live position. */
@@ -655,7 +686,7 @@ function renderCard() {
   const route = f ? routeHTML(f) : "";
   $("#card-body").innerHTML = `
     <div class="c-head">
-      <span class="c-cs">${esc(ac.cs || ac.hex.toUpperCase())}</span>
+      <span class="c-cs${ac.cs ? "" : " c-unknown"}">${esc(ac.cs || "Unknown flight")}</span>
       <span class="c-type">${esc([ac.t, ac.reg].filter(Boolean).join(" · ") || "Unknown type")}</span>
     </div>
     ${route}
@@ -685,6 +716,15 @@ function stopTracker() { clearInterval(tracker.timer); tracker.timer = null; }
 
 let refreshing = null;
 
+/** A brief, subtle pulse on the refresh icon(s) when an automatic refresh runs. */
+function pulseRefresh() {
+  for (const b of $$(".refresh-btn")) {
+    b.classList.remove("pulse");
+    void b.offsetWidth; // restart the animation
+    b.classList.add("pulse");
+  }
+}
+
 function setSpinning(on) {
   for (const b of $$(".refresh-btn")) {
     b.classList.toggle("spinning", on);
@@ -702,7 +742,7 @@ function setSpinning(on) {
 function refreshNow({ manual = true } = {}) {
   if (refreshing) return refreshing;
   const started = Date.now();
-  if (manual) setSpinning(true);
+  if (manual) setSpinning(true); else pulseRefresh();
   const date = state.view === "board" ? currentDate() : sgtDate(0);
   const jobs = [loadBoard(date, { quiet: true, fresh: manual }), loadTraffic({ fresh: manual })];
   refreshing = Promise.allSettled(jobs).then(async () => {

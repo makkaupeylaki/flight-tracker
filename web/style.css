@@ -110,6 +110,24 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .refresh-group { display: flex; align-items: center; gap: 2px; margin-left: auto; min-width: 0; }
 .updated { margin: 0; color: var(--faint); font-size: 12px; text-align: right; }
 
+.intro { margin: 0; padding: 14px 16px 0; color: var(--muted); font-size: 14px; line-height: 1.45; text-wrap: balance; }
+
+/* Auto-refresh: a soft ring around the icon, once. */
+.refresh-btn.pulse { animation: refresh-pulse 1.2s ease-out 1; }
+@keyframes refresh-pulse {
+  0% { color: var(--accent); box-shadow: 0 0 0 0 rgba(255, 210, 63, 0.35); }
+  60% { color: var(--accent); box-shadow: 0 0 0 8px rgba(255, 210, 63, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 210, 63, 0); }
+}
+
+.map-note.map-loading { display: flex; align-items: center; gap: 8px; color: var(--text); top: 50%; transform: translate(-50%, -50%); }
+.dot-spin {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+.c-cs.c-unknown { color: var(--muted); font-family: var(--sans); font-size: 18px; }
+
 /* Refresh: a 44 px tap target around an 18 px icon. */
 .refresh-btn {
   flex: none; display: grid; place-items: center;
@@ -199,10 +217,11 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .kv .k { display: block; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; }
 .kv .v { display: block; margin-top: 2px; font-size: 14px; overflow-wrap: anywhere; }
 
+/* Status pill sizes to its text (never truncated); the city column gives way instead. */
 .pill {
-  justify-self: end; max-width: 8.5em;
+  justify-self: end;
   padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 550;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--ok); background: var(--ok-bg);
 }
 .pill.warn { color: var(--warn); background: var(--warn-bg); }
@@ -229,7 +248,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   .f-gate { font-size: 11px; }
   .f-flight { gap: 5px; }
   .f-al { font-size: 12px; }
-  .pill { max-width: 6.8em; font-size: 11px; padding: 2px 7px; }
+  .pill { font-size: 11px; padding: 2px 6px; }
   .f-detail, .f-actions { padding-left: 16px; }
   .chips { gap: 5px; }
   .chips button { padding: 4px 10px; }
@@ -303,4 +322,6 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   .card, .plane svg { transition: none; }
   .flight.live .live-tag { animation: none; }
   .refresh-btn.spinning svg { animation-duration: 2.4s; }
+  .refresh-btn.pulse { animation: none; color: var(--accent); }
+  .dot-spin { animation-duration: 2.4s; }
 }
