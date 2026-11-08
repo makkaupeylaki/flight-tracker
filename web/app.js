@@ -10,9 +10,11 @@ const API = (() => {
 })();
 
 const CHANGI = [1.3644, 103.9915];
-const BOARD_REFRESH_MS = 60e3;
+const AUTO_REFRESH_MS = 2 * 60e3; // board data (and live marks) while the page is visible
+const MIN_SPIN_MS = 600; // keep the refresh spinner visible long enough to register
+const OLD_DATA_MS = 15 * 60e3; // mention the data's own time when it's older than this
+const REFRESH_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const TRAFFIC_REFRESH_MS = 15e3; // tracker tab
-const BOARD_TRAFFIC_REFRESH_MS = 60e3; // board tab: only to mark live flights, so slower
 const TRAFFIC_MAX_AGE_MS = 3 * 60e3; // drop live marks if positions are older than this
 const EARLIER_GRACE_MIN = 60; // today: hide finished flights older than this
 
@@ -56,8 +58,9 @@ function sgtMinutes(date, hhmm) {
 const fmtSGT = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Singapore", hour: "2-digit", minute: "2-digit", hour12: false });
 const fmtDay = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
 
-async function getJSON(path) {
-  const res = await fetch(API + path, { headers: { Accept: "application/json" } });
+/** `fresh` skips the browser's HTTP cache (used by the refresh button). */
+async function getJSON(path, { fresh = false } = {}) {
+  const res = await fetch(API + path, { headers: { Accept: "application/json" }, cache: fresh ? "no-cache" : "default" });
   let body = null;
   try { body = await res.json(); } catch { /* non-JSON */ }
   if (!res.ok) throw new Error((body && body.error) || `HTTP ${res.status}`);
@@ -98,26 +101,32 @@ const state = {
   open: new Set(),
   showEarlier: false,
   boards: new Map(), // date -> payload
+  fetchedAt: new Map(), // date -> when the page last fetched that board (ms)
   loading: false,
   error: null,
 };
 
 // ================================================================ board
 
-async function loadBoard(date, { quiet = false } = {}) {
+async function loadBoard(date, { quiet = false, fresh = false } = {}) {
   const today = sgtDate(0);
   const path = date === today ? "/api/board" : `/api/board?date=${date}`;
   if (!quiet) { state.loading = true; renderBoard(); }
   try {
-    const data = await getJSON(path);
+    const data = await getJSON(path, { fresh });
     state.boards.set(date, data);
+    state.fetchedAt.set(date, Date.now());
     state.error = null;
   } catch (e) {
     state.error = e.message;
   } finally {
     state.loading = false;
   }
+  // Re-render in place: filters, open rows and "earlier flights" live in `state`;
+  // keep the scroll position in case the list height changed.
+  const y = window.scrollY;
   renderBoard();
+  if (quiet && window.scrollY !== y) window.scrollTo(0, y);
   if (date === today) onTodayBoard();
 }
 
@@ -245,12 +254,23 @@ function updateLiveMarks() {
   }
 }
 
+/**
+ * "Last updated" is when this page last fetched the board. The flight data's own
+ * time (when the Worker last saw a change) is in the tooltip, and is spelled out
+ * when it's older than a couple of cron cycles.
+ */
 function renderUpdated(data) {
   const el = $("#updated");
   if (!data) { el.textContent = ""; return; }
-  const t = fmtSGT.format(new Date(data.updatedAt));
+  const fetched = state.fetchedAt.get(data.date) || data.updatedAt;
+  const t = fmtSGT.format(new Date(fetched));
+  const dataTime = fmtSGT.format(new Date(data.updatedAt));
+  const old = Date.now() - data.updatedAt > OLD_DATA_MS;
   const stale = data.stale || state.error;
-  el.innerHTML = `Last updated ${esc(t)} SGT${stale ? ` · <span class="stale" title="${esc(data.error || state.error || "")}">data may be stale</span>` : ""}`;
+  el.title = `Flight data as of ${dataTime} SGT`;
+  el.innerHTML = `Last updated ${esc(t)} SGT`
+    + (old && !stale ? ` · data from ${esc(dataTime)}` : "")
+    + (stale ? ` · <span class="stale" title="${esc(data.error || state.error || "")}">data may be stale</span>` : "");
 }
 
 /** Today's finished flights older than the grace period are tucked away. */
@@ -467,6 +487,22 @@ function initMap() {
     interactive: false, keyboard: false,
   }).addTo(map);
   map.on("click", () => { if (tracker.selected || tracker.focus) select(null); });
+  // Refresh as a standard map control (top right), so the map stays clean.
+  const Refresh = L.Control.extend({
+    options: { position: "topright" },
+    onAdd() {
+      const bar = L.DomUtil.create("div", "leaflet-bar");
+      const btn = L.DomUtil.create("button", "refresh-btn map-refresh", bar);
+      btn.type = "button";
+      btn.title = "Refresh";
+      btn.setAttribute("aria-label", "Refresh aircraft positions");
+      btn.innerHTML = REFRESH_SVG;
+      L.DomEvent.disableClickPropagation(bar);
+      L.DomEvent.on(btn, "click", () => refreshNow());
+      return bar;
+    },
+  });
+  new Refresh().addTo(map);
   tracker.map = map;
 }
 
@@ -490,12 +526,12 @@ function updatePlane(entry) {
 }
 
 /** Fetch aircraft positions: drives the map on the Tracker tab and live marks on the board. */
-async function loadTraffic() {
+async function loadTraffic({ fresh = false } = {}) {
   if (document.hidden) return;
   if (state.view === "board" && state.day !== 0) return; // live marks only apply to today
   const note = $("#map-note");
   try {
-    const data = await getJSON("/api/traffic");
+    const data = await getJSON("/api/traffic", { fresh });
     note.hidden = !data.stale;
     if (data.stale) note.textContent = "Positions delayed";
     tracker.traffic = data.ac || [];
@@ -645,6 +681,42 @@ function startTracker() {
 }
 function stopTracker() { clearInterval(tracker.timer); tracker.timer = null; }
 
+// ================================================================ refresh
+
+let refreshing = null;
+
+function setSpinning(on) {
+  for (const b of $$(".refresh-btn")) {
+    b.classList.toggle("spinning", on);
+    b.disabled = on;
+    b.setAttribute("aria-busy", String(on));
+  }
+}
+
+/**
+ * Re-fetch what's on screen without reloading the page. Board tab: the shown
+ * day's board plus positions for live marks. Tracker tab: positions plus
+ * today's board (used to match planes to flights).
+ * `manual` shows the spinner and bypasses the browser cache.
+ */
+function refreshNow({ manual = true } = {}) {
+  if (refreshing) return refreshing;
+  const started = Date.now();
+  if (manual) setSpinning(true);
+  const date = state.view === "board" ? currentDate() : sgtDate(0);
+  const jobs = [loadBoard(date, { quiet: true, fresh: manual }), loadTraffic({ fresh: manual })];
+  refreshing = Promise.allSettled(jobs).then(async () => {
+    if (manual) {
+      const wait = MIN_SPIN_MS - (Date.now() - started);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      setSpinning(false);
+    }
+    state.lastRefresh = Date.now();
+    refreshing = null;
+  });
+  return refreshing;
+}
+
 // ================================================================ views
 
 function show(view) {
@@ -666,20 +738,19 @@ function init() {
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && (tracker.selected || tracker.focus)) select(null); });
 
+  $("#refresh").addEventListener("click", () => refreshNow());
+
   loadBoard(currentDate());
   loadTraffic();
+  state.lastRefresh = Date.now();
+  // Auto-refresh every 2 minutes while the page is visible (the Tracker tab
+  // also refreshes positions every 15 s on its own timer).
   setInterval(() => {
-    if (state.view === "board") loadTraffic();
-  }, BOARD_TRAFFIC_REFRESH_MS);
-  setInterval(() => {
-    if (document.hidden) return;
-    // Board view: refresh what's shown. Tracker: keep today's board fresh for matching.
-    loadBoard(state.view === "board" ? currentDate() : sgtDate(0), { quiet: true });
-  }, BOARD_REFRESH_MS);
+    if (!document.hidden) refreshNow({ manual: false });
+  }, AUTO_REFRESH_MS);
+  // Coming back to the tab: catch up if the last refresh is older than the interval.
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) return;
-    if (state.view === "board") loadBoard(currentDate(), { quiet: true });
-    loadTraffic();
+    if (!document.hidden && Date.now() - (state.lastRefresh || 0) >= AUTO_REFRESH_MS) refreshNow({ manual: false });
   });
 
   show(state.view);

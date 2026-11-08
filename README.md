@@ -79,9 +79,10 @@ npm test                                       # unit tests
 - **KV writes (1,000/day):** the board is written only when its hash changes, plus a heartbeat write at most every
   30 min so "last updated" stays honest. Worst case 144/day, plus a few around midnight and on status changes.
 - **KV reads (100,000/day):** `/api/board` responses are memoised per isolate and cached at the edge for 30 s.
-- **Worker requests (100,000/day):** each open page polls `/api/traffic` every 60 s on the Board tab (to mark live
-  flights) and every 15 s on the Tracker tab, plus `/api/board` every 60 s. Roughly 2 requests/min per board viewer,
-  so about 35 people watching all day before hitting the limit; static Pages assets don't count.
+- **Worker requests (100,000/day):** an open page auto-refreshes `/api/board` and `/api/traffic` every 2 min while
+  visible (the Tracker tab also polls `/api/traffic` every 15 s), plus whatever the refresh button is tapped for.
+  That's about 1 request/min per board viewer, so roughly 70 people watching all day before hitting the limit;
+  static Pages assets don't count.
 
 ## Upstream quirks (Changi GraphQL)
 

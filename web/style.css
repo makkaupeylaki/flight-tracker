@@ -107,7 +107,28 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   border-color: var(--tc); color: var(--bg); background: var(--tc); font-weight: 600;
 }
 
+.refresh-group { display: flex; align-items: center; gap: 2px; margin-left: auto; min-width: 0; }
 .updated { margin: 0; color: var(--faint); font-size: 12px; text-align: right; }
+
+/* Refresh: a 44 px tap target around an 18 px icon. */
+.refresh-btn {
+  flex: none; display: grid; place-items: center;
+  width: 44px; height: 44px; margin: -8px -10px -8px 0; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--muted);
+}
+.refresh-btn svg { width: 18px; height: 18px; }
+.refresh-btn:hover { color: var(--text); background: var(--surface); }
+.refresh-btn:disabled { cursor: progress; }
+.refresh-btn.spinning { color: var(--accent); }
+.refresh-btn.spinning svg { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* The same button as a Leaflet map control on the Tracker tab. */
+.leaflet-bar .map-refresh {
+  width: 44px; height: 44px; margin: 0; border-radius: 4px;
+  background: var(--surface); color: var(--text);
+}
+.leaflet-bar .map-refresh:hover { background: var(--surface-2); }
 .updated .stale { color: var(--warn); }
 
 /* ------------------------------------------------------------ board */
@@ -281,4 +302,5 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 @media (prefers-reduced-motion: reduce) {
   .card, .plane svg { transition: none; }
   .flight.live .live-tag { animation: none; }
+  .refresh-btn.spinning svg { animation-duration: 2.4s; }
 }
