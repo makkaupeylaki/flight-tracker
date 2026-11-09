@@ -26,13 +26,17 @@ Pages (web/) ──► GET /api/board    ◄────────────
   If the cron hasn't run yet it fetches live and seeds KV.
 - `GET /api/board?date=yyyy-MM-dd` — another day (±7 days). Fetched live, cached ~5 min; falls back to KV.
 - `GET /api/traffic` — aircraft near Changi (used for the board's live dots):
-  `{ source, at, area, ac: [{ hex, cs, reg, t, lat, lon, alt, gnd, gs, trk }] }`.
+  `{ source, at, area, ac: [{ hex, cs, reg, t, lat, lon, alt, gnd, gs, trk, sq }] }`.
 - `GET /api/traffic?lat=&lon=&dist=` — aircraft around a map centre; `dist` in nautical miles, capped at 250.
   The centre and radius are rounded (grid of 0.1–0.5°, radius buckets 25–250 nm) so nearby requests share a cache entry.
 - `GET /api/traffic?callsign=SIA322` — one flight wherever it is (`ac` is empty when no receiver sees it).
 
 Traffic is fetched live (adsb.lol first; on any error, including its 429 rate limit, airplanes.live) and cached
 only in Worker memory and via `Cache-Control: max-age=10`. It is never written to KV.
+
+`sq` is the transponder (squawk) code as broadcast, or null. The page's Standby view flags 7500, 7600 and 7700
+only for airborne aircraft and only once the same code shows on two polls in a row; it's shown as a possible
+emergency, never a confirmed one. The feed's own `emergency` field is ignored.
 
 `Flight` fields: `fn` flight number, `al`/`an` airline code/name, `ap`/`city`/`cc` other airport,
 `t` terminal, `d` date, `st`/`et`/`at` scheduled/estimated/actual HH:mm (`ets`/`ats` full timestamps),

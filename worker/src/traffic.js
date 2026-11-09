@@ -41,6 +41,9 @@ function compact(a) {
     gnd: a.alt_baro === "ground",
     gs: num(a.gs),
     trk: num(a.track) ?? num(a.true_heading),
+    // Transponder code as broadcast ("7700"). The page flags emergency codes itself;
+    // the feed's own `emergency` field is unreliable and not passed on.
+    sq: typeof a.squawk === "string" && /^[0-7]{4}$/.test(a.squawk) ? a.squawk : null,
   };
 }
 

@@ -111,6 +111,24 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   border-color: var(--tc); color: var(--bg); background: var(--tc); font-weight: 600;
 }
 
+/* Wing sub-pills under T1-T3 ("All T1 · West · East"), in the terminal's colour. */
+.controls > .chips-wing { margin-top: -4px; }
+.chips.chips-wing button { color: var(--tc); border-color: var(--line); }
+.chips.chips-wing button[aria-pressed="true"] { border-color: var(--tc); background: var(--tc); color: var(--bg); font-weight: 600; }
+
+/* "Standby N": red, with a slow pulse (solid red under reduced motion, see the end of the file). */
+.chips button.chip-standby[data-term="standby"],
+.chips button.chip-standby[data-term="standby"][aria-pressed="true"] {
+  display: inline-flex; align-items: center; gap: 5px;
+  border-color: var(--bad); background: var(--bad); color: var(--bg); font-weight: 650;
+  animation: sq-pulse-bg 1.5s ease-in-out infinite;
+}
+.chips button.chip-standby[data-term="standby"][aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
+@keyframes sq-pulse-bg {
+  0%, 100% { background-color: #ff5a5f; box-shadow: 0 0 0 0 rgba(255, 90, 95, 0.55); }
+  50% { background-color: #c9383d; box-shadow: 0 0 0 5px rgba(255, 90, 95, 0); }
+}
+
 .refresh-group { display: flex; align-items: center; gap: 2px; margin-left: auto; min-width: 0; }
 .updated { margin: 0; color: var(--faint); font-size: 12px; text-align: right; }
 
@@ -227,6 +245,21 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   100% { background: var(--surface); box-shadow: inset 3px 0 0 transparent; }
 }
 
+/* Standby view: aircraft broadcasting an emergency squawk. */
+.sb-intro { margin: 0; padding: 8px 16px 12px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.sb-item { padding: 12px 16px 14px; border-top: 1px solid var(--line); box-shadow: inset 3px 0 0 var(--bad); }
+.sb-item:last-child { border-bottom: 1px solid var(--line); }
+.sb-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.sb-cs { font-family: var(--mono); font-size: 17px; font-weight: 650; }
+.sb-cs.c-unknown { font-family: var(--sans); font-size: 15px; color: var(--muted); }
+.sb-type { color: var(--muted); font-size: 13px; }
+.sb-sq {
+  margin-left: auto; padding: 1px 8px; border-radius: 999px; background: var(--bad-bg); color: var(--bad);
+  font-family: var(--mono); font-size: 12px; font-weight: 650;
+}
+.sb-meaning { margin: 4px 0 0; color: var(--bad); font-size: 14px; font-weight: 550; }
+.sb-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px 16px; margin: 10px 0 12px; }
+
 .saved-head {
   margin: 0; padding: 14px 16px 6px; color: var(--muted);
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em;
@@ -261,6 +294,8 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 /* Arrival gate line ("T2 North · Gate E8"): same look as the departure gate label, under flight + city. */
 .f-sub { grid-column: 2 / -1; grid-row: 2; margin-top: 3px; line-height: 1.3; }
 .f-sub ~ .f-note { grid-row: 3; margin-top: 1px; }
+.kv-seats { grid-column: 1 / -1; }
+.kv dd .seat-note { display: block; margin-top: 2px; max-width: 48ch; line-height: 1.4; }
 .kv dd .gate-was { display: block; margin-top: 2px; color: var(--warn); font-family: var(--sans); font-size: 12px; }
 
 .f-detail.f-getting { padding-top: 12px; border-top: 1px solid var(--line); }
@@ -316,6 +351,25 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   .seg button { padding: 6px 10px; }
 }
 
+/* Tablet / desktop rows: fixed columns so terminal, status pill and star line up from
+   row to row, the pill left-aligned in its own column, and one minimum row height.
+   The status column spans the gate line, so a delay tag doesn't push that line down.
+   Phones (portrait and landscape) keep the layout above. */
+@media (min-width: 461px) and (min-height: 501px), (min-width: 461px) and (orientation: portrait) {
+  .f-row {
+    grid-template-columns: 3.1em 5.4em minmax(0, 1fr) 3em 7.8em;
+    align-items: start; align-content: start; min-height: 66px;
+  }
+  .f-row > span { line-height: 21px; }
+  .f-time, .f-flight, .f-city, .f-where { align-self: start; }
+  .f-where { justify-content: flex-start; }
+  .f-status { grid-column: 5; grid-row: 1 / span 2; justify-self: stretch; align-items: flex-start; }
+  .f-status .pill { line-height: 17px; margin-top: 1px; }
+  .f-status .delay-tag { line-height: 16px; }
+  .f-sub, .f-note { grid-column: 2 / 5; }
+  .f-row > .f-sub, .f-row > .f-note { line-height: 1.3; }
+}
+
 .track-btn {
   border: 1px solid var(--accent); background: transparent; color: var(--accent);
   border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600;
@@ -364,6 +418,24 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .plane.ground svg { fill: var(--faint); }
 .plane.board svg { fill: #ffffff; }
 .plane.sel svg { fill: var(--accent); }
+/* Possible emergency (squawk 7500/7600/7700): red plane, red glow and a label, slow pulse. */
+.plane.emerg { border-radius: 50%; animation: sq-glow 1.5s ease-in-out infinite; }
+.plane.emerg svg { fill: var(--bad); }
+.sq-label {
+  position: absolute; left: 50%; top: 31px; transform: translateX(-50%);
+  padding: 2px 7px; border-radius: 4px; background: var(--bad); color: var(--bg);
+  font: 700 10px/1.4 var(--sans); letter-spacing: 0.04em; white-space: nowrap; pointer-events: none;
+  animation: sq-pulse-bg 1.5s ease-in-out infinite;
+}
+@keyframes sq-glow {
+  0%, 100% { box-shadow: 0 0 6px 2px rgba(255, 90, 95, 0.45); background: rgba(255, 90, 95, 0.12); }
+  50% { box-shadow: 0 0 16px 7px rgba(255, 90, 95, 0.85); background: rgba(255, 90, 95, 0.3); }
+}
+.c-emerg {
+  margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--bad-bg); color: var(--text);
+  font-size: 13px; line-height: 1.45;
+}
+.c-emerg strong { color: var(--bad); font-size: 12px; letter-spacing: 0.04em; }
 .home-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(255, 210, 63, 0.2); }
 
 .map-note {
@@ -415,7 +487,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   .controls { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 16px; }
   .controls > .row:first-child { flex: none; }
   .controls .search { flex: 1 1 260px; width: auto; }
-  .controls > .row-chips { flex: 1 1 100%; }
+  .controls > .row-chips, .controls > .chips-wing { flex: 1 1 100%; }
   .seg[aria-label="Direction"] { display: none; }
   .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; align-items: start; padding: 0 16px; }
   .board-col { min-width: 0; }
@@ -437,7 +509,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   .intro { padding-top: 8px; }
   .controls { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; padding-top: 10px; }
   .controls > .row:first-child { flex-wrap: nowrap; }
-  .controls > .row-chips { grid-column: 1 / -1; }
+  .controls > .row-chips, .controls > .chips-wing { grid-column: 1 / -1; }
   .search { padding-top: 8px; padding-bottom: 8px; }
   .card {
     left: auto; right: calc(12px + env(safe-area-inset-right, 0px)); bottom: 12px;
@@ -456,4 +528,8 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   .toast { transition: none; }
   .flight.flash .f-row { animation: none; background: rgba(255, 210, 63, 0.16); }
   .dot-spin { animation-duration: 2.4s; }
+  /* Possible emergency: solid red, no pulse. */
+  .chips button.chip-standby[data-term="standby"],
+  .chips button.chip-standby[data-term="standby"][aria-pressed], .sq-label { animation: none; background: var(--bad); box-shadow: none; }
+  .plane.emerg { animation: none; box-shadow: 0 0 12px 5px rgba(255, 90, 95, 0.75); background: rgba(255, 90, 95, 0.25); }
 }

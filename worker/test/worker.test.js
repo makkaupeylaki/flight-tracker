@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import worker, { refreshBoard } from "../src/index.js";
 import { normalise, sgtToday, addDays, gateBase, effectiveTs } from "../src/changi.js";
 import { makeKV, installCaches, makeCtx } from "./harness.js";
-import { normaliseArea, normaliseCallsign, MAX_DIST_NM } from "../src/traffic.js";
+import { normaliseArea, normaliseCallsign, MAX_DIST_NM, fetchTraffic } from "../src/traffic.js";
 
 installCaches();
 const today = sgtToday();
@@ -206,4 +206,19 @@ test("rejects bad dates and unknown paths", async () => {
   assert.equal((await worker.fetch(new Request("https://x/nope"), env, ctx)).status, 404);
   const opt = await worker.fetch(new Request("https://x/api/board", { method: "OPTIONS" }), env, ctx);
   assert.equal(opt.headers.get("access-control-allow-origin"), "*");
+});
+
+test("traffic passes the squawk through and drops the feed's emergency field", async () => {
+  globalThis.fetch = async () => Response.json({ ac: [
+    { hex: "76cd01", flight: "SIA322  ", lat: 1.4, lon: 104.1, alt_baro: 31000, gs: 450, track: 90, squawk: "7700", emergency: "general" },
+    { hex: "76cd02", flight: "SIA9", lat: 1.3, lon: 103.9, alt_baro: "ground", squawk: "7500" },
+    { hex: "76cd03", lat: 1.2, lon: 103.8, alt_baro: 5000, squawk: 7600 },
+    { hex: "76cd04", lat: 1.2, lon: 103.8, alt_baro: 5000, squawk: "79a1" },
+    { hex: "76cd05", lat: 1.2, lon: 103.8, alt_baro: 5000 },
+  ] });
+  const { ac } = await fetchTraffic({ lat: 1.4, lon: 104, dist: 25 });
+  assert.deepEqual(ac.map((a) => a.sq), ["7700", "7500", null, null, null]);
+  assert.equal(ac[0].cs, "SIA322");
+  assert.equal(ac[1].gnd, true);
+  assert.ok(!("emergency" in ac[0]));
 });

@@ -233,6 +233,7 @@ const state = {
   view: location.hash === "#tracker" ? "tracker" : "board",
   dir: store.get("dir", "dep"),
   term: store.get("term", "all"),
+  wing: "all", // T1-T3 only: "all" or a GATE_SIDES side name ("West", "North", ...)
   day: 0,
   q: "",
   open: new Set(),
@@ -278,6 +279,8 @@ function filteredFlights(data, dir = state.dir) {
   return list.filter((f) => {
     if (state.term === "saved") { if (!isFav(dir, f)) return false; }
     else if (state.term !== "all" && f.t !== state.term) return false;
+    // Wing sub-filter: by the gate's letter; flights without a gate only show under "All".
+    if (state.wing !== "all" && state.term !== "saved" && gateWing(f) !== state.wing) return false;
     if (!q) return true;
     const compactQ = q.replace(/\s+/g, "");
     return (
@@ -406,13 +409,46 @@ const GATE_SIDES = {
 /** "F56L" -> "F56": the public gate number without the hold-room side. */
 const plainGate = (g) => String(g).trim().toUpperCase().replace(/(\d)[LR]$/, "$1");
 
-/** Arrival gate text: "T2 North · Gate E8", or just "Gate G9" when the letter has no side. */
-function arrivalGateHTML(gate) {
-  const g = plainGate(gate);
-  const side = GATE_SIDES[g[0]];
-  return side
-    ? `<span class="t${side[0]}">T${side[0]} ${side[1]}</span> · Gate ${esc(g)}`
-    : `Gate ${esc(g)}`;
+/** The wing ("West", "North", ...) a flight's gate is in, or null (no gate, or T4). */
+function gateWing(f) {
+  if (!f || !f.gate) return null;
+  const side = GATE_SIDES[plainGate(f.gate)[0]];
+  return side ? side[1] : null;
+}
+
+/**
+ * Gate text for both directions: "T1 West · Gate C20", or "T4 · Gate G9" when the
+ * letter has no wing. Departures keep Changi's gate as shown (hold-room L/R included).
+ */
+function gateLineHTML(f, dep) {
+  const g = dep ? String(f.gate).trim().toUpperCase() : plainGate(f.gate);
+  const side = GATE_SIDES[plainGate(f.gate)[0]];
+  const where = side
+    ? `<span class="t${side[0]}">T${side[0]} ${side[1]}</span> · `
+    : f.t ? `<span class="${termClass(f.t)}">T${esc(f.t)}</span> · ` : "";
+  return `${where}Gate ${esc(g)}`;
+}
+
+// ---------------------------------------------------------------- seats (estimate)
+
+// Typical seats for common airline + aircraft combinations at Changi (IATA airline
+// code, ICAO type code as Changi lists it). An estimate of the cabin, not a passenger
+// count: airlines don't publish how many people are on board. Edit one line each.
+const SEATS = {
+  "SQ A359": 253, "SQ B77W": 264, "SQ B78X": 337, "SQ A388": 471, "SQ B38M": 154,
+  "TR A20N": 186, "TR A21N": 236, "TR A320": 180, "TR B788": 335, "TR B789": 375, "TR E290": 112,
+  "AK A320": 180, "AK A20N": 186, "AK A21N": 236, "FD A320": 180, "QZ A320": 180,
+  "6E A20N": 186, "6E A21N": 222,
+  "MH B738": 160, "MH B38M": 166, "OD B738": 162, "GA B738": 162,
+  "8B A320": 180, "ID A320": 180, "VJ A321": 230, "VN A321": 184,
+  "EK B77W": 354, "TK A359": 329, "QR A359": 283, "QR A35K": 327, "CX A359": 280,
+  "QF A388": 485, "QF B789": 236,
+};
+
+/** "~253 seats (est.)" for a known airline + aircraft type, else null. */
+function seatEstimate(f) {
+  const n = f && f.al && f.ac ? SEATS[`${f.al} ${String(f.ac).toUpperCase()}`] : undefined;
+  return n ? `~${n} seats (est.)` : null;
 }
 
 function gettingThereHTML(f, dep) {
@@ -442,14 +478,15 @@ function detailHTML(f, dir = state.dir) {
     ${kv("Airline", esc(f.an || f.al))}
     ${groundHandler(f) ? kv("Ground handler", `<span class="gha-detail">${esc(GHA_DETAIL_NAMES[groundHandler(f)] || groundHandler(f))}</span>`) : ""}
     ${dep ? kv("Gate", f.gate
-      ? `${esc(f.gate)}${gateChanged(f) ? `<small class="gate-was">Gate changed, was ${esc(f.gate_was)}</small>` : ""}`
-      : "—") : (f.gate ? kv("Gate", `${arrivalGateHTML(f.gate)}${gateChanged(f) ? `<small class="gate-was">Gate changed, was ${esc(f.gate_was)}</small>` : ""}`) : "") + kv("Belt", f.belt ? `${esc(f.belt)}${f.belt_status ? ` <small>${esc(f.belt_status)}</small>` : ""}` : "—")}
+      ? `${gateLineHTML(f, true)}${gateChanged(f) ? `<small class="gate-was">Gate changed, was ${esc(f.gate_was)}</small>` : ""}`
+      : "—") : (f.gate ? kv("Gate", `${gateLineHTML(f, false)}${gateChanged(f) ? `<small class="gate-was">Gate changed, was ${esc(f.gate_was)}</small>` : ""}`) : "") + kv("Belt", f.belt ? `${esc(f.belt)}${f.belt_status ? ` <small>${esc(f.belt_status)}</small>` : ""}` : "—")}
     ${dep ? kv("Check-in row", esc(f.row) || "—") : ""}
     ${kv("Scheduled", time(f.st, `${f.d} ${f.st}`))}
     ${kv("Estimated", time(f.et, f.ets) || "—")}
     ${kv("Actual", time(f.at, f.ats) || "—")}
     ${kv("Aircraft", esc(f.ac) || "—")}
     ${kv("Terminal", f.t ? `<span class="${termClass(f.t)}">T${esc(f.t)}</span>` : "Not assigned yet")}
+    ${seatEstimate(f) ? `<div class="kv kv-seats"><dt>Seats</dt><dd>${esc(seatEstimate(f))}<small class="seat-note">Typical seat count for this aircraft — airlines don't publish the actual number of passengers on board.</small></dd></div>` : ""}
   </dl>
   ${gettingThereHTML(f, dep)}
   <div class="f-actions">
@@ -469,14 +506,12 @@ function rowHTML(f, dir = state.dir) {
   // Flag the change on the row only while people may still be heading to the gate;
   // the detail keeps it after departure.
   const moved = gateChanged(f) && !isFinished(f);
-  const gate = dep && f.gate
-    ? `<span class="f-gate${moved ? " changed" : ""}" title="Gate ${esc(f.gate)}${moved ? `, changed from ${esc(f.gate_was)}` : ""}">${esc(f.gate)}</span>`
-    : "";
   const note = moved ? `<span class="f-note">Gate changed, was ${esc(f.gate_was)}</span>` : "";
-  // Arrivals: terminal side and gate on a second line, only once Changi publishes the gate.
+  // Second line, both directions: wing, gate and ground handler ("T1 West · Gate C20 · SATS"),
+  // once Changi publishes the gate. No gate: the terminal column says it all.
   const gha = groundHandler(f);
-  const side = !dep && f.gate
-    ? `<span class="f-sub f-gate${moved ? " changed" : ""}">${arrivalGateHTML(f.gate)}${gha ? ` · <span class="f-gha" title="Ground handler">${esc(gha)}</span>` : ""}</span>`
+  const side = f.gate
+    ? `<span class="f-sub f-gate${moved ? " changed" : ""}"${moved ? ` title="Gate changed from ${esc(f.gate_was)}"` : ""}>${gateLineHTML(f, dep)}${gha ? ` · <span class="f-gha" title="Ground handler">${esc(gha)}</span>` : ""}</span>`
     : "";
   // The row is a focusable element acting as a button (Enter/Space open it), so the
   // star can be a real button inside it without opening the row.
@@ -486,7 +521,7 @@ function rowHTML(f, dir = state.dir) {
       <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(shownTime(f))}</span>
       <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span></span>
       <span class="f-city">${esc(f.city || f.ap)}</span>
-      <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>${gate}</span>
+      <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span></span>
       <span class="f-status"><span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>${delayTagHTML(f, dir)}</span>
       ${side}${note}
       <button class="fav-btn" type="button" data-fav aria-pressed="${saved}" aria-label="${saved ? "Remove" : "Save"} ${esc(f.fn)}${saved ? " from saved flights" : ""}" title="${saved ? "Saved" : "Save flight"}">${STAR_SVG(saved)}</button>
@@ -589,6 +624,8 @@ function renderBoard() {
   const box = $("#board");
   box.setAttribute("aria-busy", String(state.loading));
   renderUpdated(data);
+  renderStandbyChip();
+  if (state.term === "standby") { renderStandby(box); return; }
 
   if (!data) {
     box.innerHTML = state.loading
@@ -645,6 +682,82 @@ function renderSaved(data, box) {
   box.innerHTML = `<p class="empty">${msg}</p>`;
 }
 
+/** Standby view: aircraft broadcasting an emergency squawk (not tied to the board's day). */
+function renderStandby(box) {
+  const list = [...tracker.standby.values()]
+    .sort((a, b) => haversineKm(CHANGI, [a.lat, a.lon]) - haversineKm(CHANGI, [b.lat, b.lon]));
+  const intro = `<p class="sb-intro">Aircraft in the latest live positions (around Changi, or the area the
+    Tracker map shows) that have broadcast an emergency transponder code on two position updates in a row.
+    A squawk is a broadcast, not a confirmed incident: it can be set by mistake or during a test,
+    and most end with a normal landing.</p>`;
+  if (!list.length) {
+    box.innerHTML = intro + `<p class="empty">No aircraft are broadcasting an emergency code right now.</p>`;
+    return;
+  }
+  box.innerHTML = intro + list.map((ac) => {
+    const [, meaning] = EMERGENCY_SQUAWKS[ac.sq];
+    const alt = ac.alt != null ? `${Math.round(ac.alt).toLocaleString("en-US")} ft` : "—";
+    const spd = ac.gs != null ? `${Math.round(ac.gs)} kt` : "—";
+    const km = haversineKm(CHANGI, [ac.lat, ac.lon]);
+    const pos = `${ac.lat.toFixed(3)}, ${ac.lon.toFixed(3)} <small>${km.toFixed(0)} km from Changi</small>`;
+    return `<article class="sb-item" aria-label="${esc(ac.cs || "Unknown flight")}, possible emergency">
+      <div class="sb-head">
+        <span class="sb-cs${ac.cs ? "" : " c-unknown"}">${esc(ac.cs || "Unknown flight")}</span>
+        <span class="sb-type">${esc([ac.t, ac.reg].filter(Boolean).join(" · ") || "Unknown type")}</span>
+        <span class="sb-sq">Squawk ${esc(ac.sq)}</span>
+      </div>
+      <p class="sb-meaning">Possible emergency: ${esc(meaning)}</p>
+      <dl class="sb-stats">
+        <div class="kv"><dt>Altitude</dt><dd>${esc(alt)}</dd></div>
+        <div class="kv"><dt>Speed</dt><dd>${esc(spd)}</dd></div>
+        <div class="kv"><dt>Position</dt><dd>${pos}</dd></div>
+      </dl>
+      <button class="track-btn" type="button" data-standby-hex="${esc(ac.hex)}">Show on map</button>
+    </article>`;
+  }).join("");
+}
+
+/** Standby -> Tracker: centre the map on that aircraft and open its card. */
+function showStandbyOnMap(hex) {
+  const ac = tracker.standby.get(hex);
+  if (!ac) return;
+  tracker.focus = null;
+  show("tracker");
+  const go = () => {
+    if (!tracker.map) { setTimeout(go, 200); return; }
+    tracker.map.setView([ac.lat, ac.lon], Math.max(tracker.map.getZoom(), 9));
+    upsertMarker(ac);
+    select(ac.hex);
+  };
+  go();
+}
+
+/** Wing sub-pills ("All T1 · West · East") under the terminal chips, for T1-T3 only. */
+function renderWings() {
+  const box = $("#wings");
+  if (!box) return;
+  const wings = Object.entries(GATE_SIDES).filter(([, s]) => s[0] === state.term);
+  box.hidden = !wings.length;
+  if (!wings.length) { box.innerHTML = ""; return; }
+  box.style.setProperty("--tc", `var(--t${state.term})`);
+  box.setAttribute("aria-label", `T${state.term} wing`);
+  const btn = (wing, label, title) =>
+    `<button type="button" data-wing="${esc(wing)}" aria-pressed="${state.wing === wing}"${title ? ` title="${esc(title)}"` : ""}>${esc(label)}</button>`;
+  box.innerHTML = btn("all", `All T${state.term}`, "") +
+    wings.map(([letter, s]) => btn(s[1], s[1], `Gates ${letter}`)).join("");
+}
+
+/** Switch the terminal filter (All, T1-T4, Saved, Standby); the wing resets to All. */
+function setTerm(term) {
+  state.term = term;
+  state.wing = "all";
+  if (term !== "standby") store.set("term", term); // Standby is live-only, not restored on reload
+  setPressed("[data-term]", "term", state.term);
+  renderSavedChip();
+  renderStandbyChip();
+  renderWings();
+}
+
 function setPressed(sel, attr, val) {
   $$(sel).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val))));
 }
@@ -659,7 +772,23 @@ function bindBoard() {
     chip.className = "chip-saved";
     chip.setAttribute("aria-pressed", "false");
     chips.appendChild(chip);
+    // "Standby N": only shown while aircraft are broadcasting an emergency squawk.
+    const sb = document.createElement("button");
+    sb.type = "button";
+    sb.dataset.term = "standby";
+    sb.className = "chip-standby";
+    sb.hidden = true;
+    sb.setAttribute("aria-pressed", "false");
+    chips.appendChild(sb);
   }
+  if (state.term === "standby") state.term = "all";
+  $("#wings").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-wing]");
+    if (!b) return;
+    state.wing = b.dataset.wing;
+    renderWings();
+    renderBoard();
+  });
   favs = pruneFavs(readFavs());
   renderSavedChip();
   // Saved in another tab: pick it up here too.
@@ -672,8 +801,7 @@ function bindBoard() {
     setPressed("[data-dir]", "dir", state.dir); renderBoard();
   }));
   $$("[data-term]").forEach((b) => b.addEventListener("click", () => {
-    state.term = b.dataset.term; store.set("term", state.term);
-    setPressed("[data-term]", "term", state.term); renderSavedChip(); renderBoard();
+    setTerm(b.dataset.term); renderBoard();
   }));
   $$("[data-day]").forEach((b) => b.addEventListener("click", () => {
     state.day = Number(b.dataset.day); state.open.clear(); state.showEarlier = false;
@@ -690,6 +818,8 @@ function bindBoard() {
   $("#board").addEventListener("click", (e) => {
     const act = e.target.closest("[data-act]");
     if (act) { state.showEarlier = act.dataset.act === "earlier"; renderBoard(); return; }
+    const sb = e.target.closest("[data-standby-hex]");
+    if (sb) { showStandbyOnMap(sb.dataset.standbyHex); return; }
     const row = e.target.closest(".flight");
     if (!row) return;
     const dir = row.dataset.dir || state.dir;
@@ -724,6 +854,7 @@ function bindBoard() {
   });
   setPressed("[data-dir]", "dir", state.dir);
   setPressed("[data-term]", "term", state.term);
+  renderWings();
 }
 
 function toggleRow(k) {
@@ -752,7 +883,48 @@ const tracker = {
   traffic: [], // latest aircraft positions
   trafficAt: 0, // when they were fetched (ms)
   live: new Set(), // liveKey()s of board flights whose plane is in `traffic`
+  squawks: new Map(), // hex -> { sq, polls, at }: emergency codes seen on consecutive polls
+  standby: new Map(), // hex -> aircraft flagged as a possible emergency
 };
+
+// Emergency transponder codes: [map label, plain words]. Only these three are flagged.
+const EMERGENCY_SQUAWKS = {
+  7500: ["UNLAWFUL INTERFERENCE", "unlawful interference (hijack code)"],
+  7600: ["RADIO FAILURE", "radio failure (lost communication)"],
+  7700: ["GENERAL EMERGENCY", "general emergency"],
+};
+const SQUAWK_MIN_POLLS = 2; // the same code on this many polls in a row before it's flagged
+
+/**
+ * Flag airborne aircraft whose emergency squawk has held for SQUAWK_MIN_POLLS
+ * consecutive position polls. `at` is the response time, so a cached copy of the
+ * same response isn't counted twice. ADS-B's own "emergency" field is ignored.
+ */
+function updateStandby(list, at) {
+  const next = new Map();
+  for (const ac of list) {
+    if (!ac.hex || ac.gnd || !Object.prototype.hasOwnProperty.call(EMERGENCY_SQUAWKS, ac.sq)) continue;
+    const prev = tracker.squawks.get(ac.hex);
+    const polls = prev && prev.sq === ac.sq ? (prev.at === at ? prev.polls : prev.polls + 1) : 1;
+    next.set(ac.hex, { sq: ac.sq, polls, at });
+  }
+  tracker.squawks = next;
+  tracker.standby = new Map(list.filter((ac) => (next.get(ac.hex)?.polls || 0) >= SQUAWK_MIN_POLLS).map((ac) => [ac.hex, ac]));
+}
+
+/** The emergency code this aircraft is flagged for, or null. */
+const emergencyOf = (ac) => (ac && tracker.standby.has(ac.hex) ? ac.sq : null);
+
+/** The red "Standby N" pill next to Saved: shown only while N > 0 (or while it's the open view). */
+function renderStandbyChip() {
+  const chip = $('[data-term="standby"]');
+  if (!chip) return;
+  const n = tracker.standby.size;
+  chip.hidden = !(n > 0 || state.term === "standby");
+  chip.innerHTML = `<span>Standby</span><span class="chip-count">${n}</span>`;
+  chip.setAttribute("aria-label", `Standby: ${n} aircraft broadcasting a possible emergency code`);
+  chip.title = "Aircraft broadcasting an emergency squawk (possible emergency)";
+}
 
 const PLANE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.8 0 1.3.8 1.3 1.9V9l7.7 4.4v1.9l-7.7-2.4v4.6l2.1 1.6V21L12 20.1 8.6 21v-1.9l2.1-1.6v-4.6L3 15.3v-1.9L10.7 9V3.9C10.7 2.8 11.2 2 12 2z"/></svg>`;
 
@@ -885,7 +1057,8 @@ function viewOnBoard(f) {
   state.day = 0;
   state.q = ""; $("#search").value = "";
   const keepSaved = state.term === "saved" && isFav(f.dir, f);
-  if (state.term !== "all" && state.term !== f.t && !keepSaved) { state.term = "all"; store.set("term", state.term); }
+  if (state.term !== "all" && state.term !== f.t && !keepSaved) setTerm("all");
+  else if (state.wing !== "all" && gateWing(f) !== state.wing) { state.wing = "all"; renderWings(); }
   state.open = new Set([key]);
   if (isEarlier(f)) state.showEarlier = true;
   setPressed("[data-dir]", "dir", state.dir);
@@ -1005,11 +1178,17 @@ function enableModifierWheelZoom(map) {
   }, { passive: false });
 }
 
+const planeClass = (ac, selected, onBoard) =>
+  ["plane", ac.gnd ? "ground" : "", onBoard ? "board" : "", selected ? "sel" : "", emergencyOf(ac) ? "emerg" : ""].join(" ");
+
+/** Map label for a flagged aircraft: "SQUAWK 7700 · GENERAL EMERGENCY". */
+const squawkLabel = (sq) => `SQUAWK ${sq} · ${EMERGENCY_SQUAWKS[sq][0]}`;
+
 function planeIcon(ac, selected, onBoard) {
-  const cls = ["plane", ac.gnd ? "ground" : "", onBoard ? "board" : "", selected ? "sel" : ""].join(" ");
+  const sq = emergencyOf(ac);
   return L.divIcon({
     className: "",
-    html: `<div class="${cls}">${PLANE_SVG.replace("<svg", `<svg style="transform:rotate(${ac.trk ?? 0}deg)"`)}</div>`,
+    html: `<div class="${planeClass(ac, selected, onBoard)}">${PLANE_SVG.replace("<svg", `<svg style="transform:rotate(${ac.trk ?? 0}deg)"`)}</div>${sq ? `<span class="sq-label">${esc(squawkLabel(sq))}</span>` : ""}`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   });
@@ -1019,8 +1198,17 @@ function updatePlane(entry) {
   const el = entry.marker.getElement();
   const { ac } = entry;
   if (!el) return;
+  const sq = emergencyOf(ac);
+  if ((sq || null) !== (entry.sq || null)) {
+    // Flagged or cleared: rebuild the icon (label, title, drawn above other planes).
+    entry.sq = sq;
+    entry.marker.options.title = markerTitle(ac);
+    entry.marker.setZIndexOffset(sq ? 1000 : 0);
+    entry.marker.setIcon(planeIcon(ac, tracker.selected === ac.hex, entry.onBoard));
+    return;
+  }
   const box = el.firstElementChild;
-  box.className = ["plane", ac.gnd ? "ground" : "", entry.onBoard ? "board" : "", tracker.selected === ac.hex ? "sel" : ""].join(" ");
+  box.className = planeClass(ac, tracker.selected === ac.hex, entry.onBoard);
   box.firstElementChild.style.transform = `rotate(${ac.trk ?? 0}deg)`;
 }
 
@@ -1061,7 +1249,10 @@ async function loadTraffic({ fresh = false } = {}) {
     note.textContent = data.stale ? "Positions delayed" : "Showing 250 nm around the centre · zoom in for the rest";
     tracker.traffic = data.ac || [];
     tracker.trafficAt = data.at || Date.now();
+    updateStandby(tracker.traffic, tracker.trafficAt);
     if (state.view === "tracker") applyTraffic(tracker.traffic);
+    else if (state.term === "standby") renderBoard();
+    renderStandbyChip();
   } catch (e) {
     if (e.name === "AbortError" || seq !== trafficSeq) return;
     note.hidden = false;
@@ -1071,6 +1262,11 @@ async function loadTraffic({ fresh = false } = {}) {
   computeLive();
 }
 
+const markerTitle = (ac) => {
+  const sq = emergencyOf(ac);
+  return `${ac.cs || "Unknown flight"}${sq ? `, possible emergency: squawk ${sq} (${EMERGENCY_SQUAWKS[sq][1]})` : ""}`;
+};
+
 /** Add or move one plane's marker. */
 function upsertMarker(ac) {
   const onBoard = Boolean(matchFlight(ac.cs)) || (tracker.pinned && tracker.pinned.hex === ac.hex);
@@ -1079,10 +1275,11 @@ function upsertMarker(ac) {
     const marker = L.marker([ac.lat, ac.lon], {
       icon: planeIcon(ac, false, onBoard),
       keyboard: true,
-      title: ac.cs || "Unknown flight",
+      title: markerTitle(ac),
       riseOnHover: true,
+      zIndexOffset: emergencyOf(ac) ? 1000 : 0,
     }).addTo(tracker.map);
-    entry = { marker, ac, onBoard };
+    entry = { marker, ac, onBoard, sq: emergencyOf(ac) };
     marker.on("click", (e) => { L.DomEvent.stopPropagation(e); select(ac.hex); });
     tracker.markers.set(ac.hex, entry);
   } else {
@@ -1221,6 +1418,7 @@ function renderCard() {
       <span class="c-type">${esc([ac.t, ac.reg].filter(Boolean).join(" · ") || "Unknown type")}</span>
     </div>
     ${route}
+    ${emergencyOf(ac) ? `<p class="c-emerg"><strong>${esc(squawkLabel(ac.sq))}</strong><br>Possible emergency: this aircraft is broadcasting squawk ${esc(ac.sq)} (${esc(EMERGENCY_SQUAWKS[ac.sq][1])}). A squawk is a broadcast, not a confirmed incident.</p>` : ""}
     <dl class="c-stats">
       <div class="kv"><dt>Altitude</dt><dd>${esc(alt)}</dd></div>
       <div class="kv"><dt>Speed</dt><dd>${esc(spd)}</dd></div>
@@ -1408,10 +1606,12 @@ function init() {
       state.day = link.offset;
       if (link.dir) state.dir = link.dir;
       state.term = "all";
+      state.wing = "all";
       state.q = "";
       setPressed("[data-day]", "day", state.day);
       setPressed("[data-dir]", "dir", state.dir);
       setPressed("[data-term]", "term", state.term);
+      renderWings();
       state.pendingShare = link;
     } else {
       toast("Flight not found for that day");
