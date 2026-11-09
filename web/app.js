@@ -100,7 +100,7 @@ function statusClass(f) {
   const s = `${f.raw || ""} ${f.status || ""}`.toLowerCase();
   if (/cancel|delay|re-?timed|divert/.test(s)) return "bad";
   if (/depart|landed|arrived/.test(s)) return "done";
-  if (/board|gate open|gate clos|last call|new gate|go to gate/.test(s)) return "warn";
+  if (/board|gate open|gate clos|last call|new gate|go to gate|ask airline/.test(s)) return "warn";
   return "ok";
 }
 const isFinished = (f) => /depart|landed|arrived|cancel/i.test(`${f.raw} ${f.status}`);
@@ -246,22 +246,35 @@ const state = {
   boards: new Map(), // date -> payload
   fetchedAt: new Map(), // date -> when the page last fetched that board (ms)
   loading: false,
-  error: null,
+  errors: new Map(), // boardId -> last load error
+  airport: store.get("airport", "sin") === "xsp" ? "xsp" : "sin", // Board tab: Changi or Seletar
 };
+
+/**
+ * Key for a loaded board: Changi boards keep the plain date (the Tracker and live
+ * marks read today's Changi board by date); Seletar's are "xsp:<date>".
+ */
+const boardId = (date, airport = state.airport) => (airport === "xsp" ? `xsp:${date}` : date);
+const boardIdOf = (data) => boardId(data.date, data.airport === "XSP" ? "xsp" : "sin");
+const isXsp = (f) => Boolean(f && f.apt === "XSP");
 
 // ================================================================ board
 
-async function loadBoard(date, { quiet = false, fresh = false } = {}) {
+/** Load one day's board. `airport` is "sin" (Changi, the default) or "xsp" (Seletar). */
+async function loadBoard(date, { quiet = false, fresh = false, airport = "sin" } = {}) {
   const today = sgtDate(0);
-  const path = date === today ? "/api/board" : `/api/board?date=${date}`;
+  const id = boardId(date, airport);
+  const path = airport === "xsp"
+    ? `/api/board?airport=xsp&date=${date}`
+    : date === today ? "/api/board" : `/api/board?date=${date}`;
   if (!quiet) { state.loading = true; renderBoard(); }
   try {
     const data = await getJSON(path, { fresh });
-    state.boards.set(date, data);
-    state.fetchedAt.set(date, Date.now());
-    state.error = null;
+    state.boards.set(id, data);
+    state.fetchedAt.set(id, Date.now());
+    state.errors.delete(id);
   } catch (e) {
-    state.error = e.message;
+    state.errors.set(id, e.message);
   } finally {
     state.loading = false;
   }
@@ -270,8 +283,8 @@ async function loadBoard(date, { quiet = false, fresh = false } = {}) {
   const y = window.scrollY;
   renderBoard();
   if (quiet && window.scrollY !== y) window.scrollTo(0, y);
-  if (date === today) onTodayBoard();
-  if (state.pendingShare && date === currentDate()) resolveShareLink();
+  if (date === today && airport === "sin") onTodayBoard();
+  if (state.pendingShare && date === currentDate() && airport === state.airport) resolveShareLink();
 }
 
 function currentDate() { return sgtDate(state.day); }
@@ -468,7 +481,30 @@ function gettingThereHTML(f, dep) {
   </section>`;
 }
 
+/** Seletar detail: what its feed has (no terminal, gate, check-in row or aircraft type). */
+function xspDetailHTML(f, dir) {
+  const kv = (k, v) => (v ? `<div class="kv"><dt>${esc(k)}</dt><dd>${v}</dd></div>` : "");
+  const dep = dir === "dep";
+  const saved = isFav(dir, f);
+  const d = f.ets && f.ets.slice(0, 10);
+  const updated = f.et ? `${esc(f.et)}${d && d !== f.d ? ` <small>${esc(fmtDay.format(new Date(d + "T00:00:00Z")))}</small>` : ""}` : "—";
+  return `<dl class="f-detail">
+    ${kv(dep ? "To" : "From", `${esc(f.city || f.ap)} <small>${esc(f.ap || "")}</small>`)}
+    ${kv("Airline", esc(f.an || f.al))}
+    ${kv("Airport", '<span class="xsp">Seletar (XSP)</span>')}
+    ${dep ? kv("Door", esc(f.door) || "—") : kv("Belt", esc(f.belt) || "—")}
+    ${kv("Scheduled", esc(f.st))}
+    ${kv(dep ? "Departure (latest)" : "Arrival (latest)", updated)}
+    ${kv("Status", esc(f.status) || "No update yet")}
+  </dl>
+  <div class="f-actions">
+    <button class="save-btn${saved ? " saved" : ""}" type="button" data-fav aria-pressed="${saved}">${STAR_SVG(saved)}${saved ? "Saved" : "Save flight"}</button>
+    <button class="save-btn share-btn" type="button" data-share>${SHARE_SVG}Share</button>
+  </div>`;
+}
+
 function detailHTML(f, dir = state.dir) {
+  if (isXsp(f)) return xspDetailHTML(f, dir);
   const kv = (k, v) => (v ? `<div class="kv"><dt>${esc(k)}</dt><dd>${v}</dd></div>` : "");
   const time = (hm, ts) => {
     if (!hm) return "";
@@ -514,8 +550,12 @@ function rowHTML(f, dir = state.dir) {
   const note = moved ? `<span class="f-note">Gate changed, was ${esc(f.gate_was)}</span>` : "";
   // Second line, both directions: wing, gate and ground handler ("T1 West · Gate C20 · SATS"),
   // once Changi publishes the gate. No gate: the terminal column says it all.
-  const gha = groundHandler(f);
-  const side = f.gate
+  const gha = isXsp(f) ? null : groundHandler(f);
+  // Seletar: no terminals; the second line is the door (departures) or belt (arrivals).
+  const xspLine = isXsp(f) && (dep ? f.door : f.belt)
+    ? `<span class="f-sub f-gate">${esc(dep ? f.door : `Belt ${f.belt}`)}</span>`
+    : "";
+  const side = isXsp(f) ? xspLine : f.gate
     ? `<span class="f-sub f-gate${moved ? " changed" : ""}"${moved ? ` title="Gate changed from ${esc(f.gate_was)}"` : ""}>${gateLineHTML(f, dep)}${gha ? ` · <span class="f-gha" title="Ground handler">${esc(gha)}</span>` : ""}</span>`
     : "";
   // The row is a focusable element acting as a button (Enter/Space open it), so the
@@ -526,7 +566,9 @@ function rowHTML(f, dir = state.dir) {
       <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(shownTime(f))}</span>
       <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span></span>
       <span class="f-city">${esc(f.city || f.ap)}</span>
-      <span class="f-where"><span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span></span>
+      <span class="f-where">${isXsp(f)
+        ? '<span class="f-term xsp" title="Seletar Airport">XSP</span>'
+        : `<span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>`}</span>
       <span class="f-status"><span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>${delayTagHTML(f, dir)}</span>
       ${side}${note}
       <button class="fav-btn" type="button" data-fav aria-pressed="${saved}" aria-label="${saved ? "Remove" : "Save"} ${esc(f.fn)}${saved ? " from saved flights" : ""}" title="${saved ? "Saved" : "Save flight"}">${STAR_SVG(saved)}</button>
@@ -578,15 +620,16 @@ function updateLiveMarks() {
 function renderUpdated(data) {
   const el = $("#updated");
   if (!data) { el.textContent = ""; return; }
-  const fetched = state.fetchedAt.get(data.date) || data.updatedAt;
+  const err = state.errors.get(boardIdOf(data));
+  const fetched = state.fetchedAt.get(boardIdOf(data)) || data.updatedAt;
   const t = fmtSGT.format(new Date(fetched));
   const dataTime = fmtSGT.format(new Date(data.updatedAt));
   const old = Date.now() - data.updatedAt > OLD_DATA_MS;
-  const stale = data.stale || state.error;
+  const stale = data.stale || err;
   el.title = `Flight data last changed at ${dataTime} SGT`;
   // One line: when the page last updated, then the most useful second fact.
   const tail = stale
-    ? `<span class="stale" title="${esc(data.error || state.error || "")}">data may be slightly old</span>`
+    ? `<span class="stale" title="${esc(data.error || err || "")}">data may be slightly old</span>`
     : old
       ? `data from ${esc(dataTime)}`
       : `auto-refreshes every ${AUTO_REFRESH_MS / 60e3} min`;
@@ -619,13 +662,19 @@ function columnHTML(dir, title, data) {
   const less = state.day === 0 && state.showEarlier && !state.q ? `<button class="more" data-act="later">Hide earlier flights</button>` : "";
   const body = list.length
     ? more + less + list.map((f) => rowHTML(f, dir)).join("")
-    : more + `<p class="empty">${state.q ? "No flights match your search." : "No flights."}</p>`;
+    : more + `<p class="empty">${esc(noFlightsText())}</p>`;
   return `<section class="board-col" aria-label="${title}"><h2 class="col-head">${title}</h2>${body}</section>`;
 }
 
+/** Empty-list text for the board on screen. */
+const noFlightsText = () => (state.q
+  ? "No flights match your search."
+  : state.airport === "xsp" ? "No Seletar flights on this day." : "No flights.");
+
 function renderBoard() {
   const date = currentDate();
-  const data = state.boards.get(date);
+  const data = state.boards.get(boardId(date));
+  const error = state.errors.get(boardId(date));
   const box = $("#board");
   box.setAttribute("aria-busy", String(state.loading));
   renderUpdated(data);
@@ -635,7 +684,7 @@ function renderBoard() {
   if (!data) {
     box.innerHTML = state.loading
       ? `<p class="empty">Loading flights…</p>`
-      : `<p class="empty error">Couldn't load flights${state.error ? `: ${esc(state.error)}` : ""}.</p>`;
+      : `<p class="empty error">Couldn't load ${state.airport === "xsp" ? "Seletar " : ""}flights${error ? `: ${esc(error)}` : ""}.</p>`;
     return;
   }
 
@@ -659,7 +708,7 @@ function renderBoard() {
   const less = state.day === 0 && state.showEarlier && !state.q ? `<button class="more" data-act="later">Hide earlier flights</button>` : "";
   box.innerHTML = list.length
     ? more + less + list.map((f) => rowHTML(f)).join("")
-    : more + `<p class="empty">${state.q ? "No flights match your search." : "No flights."}</p>`;
+    : more + `<p class="empty">${esc(noFlightsText())}</p>`;
 }
 
 /** Saved view: the selected day's starred flights, departures and arrivals together. */
@@ -741,7 +790,7 @@ function showStandbyOnMap(hex) {
 function renderWings() {
   const box = $("#wings");
   if (!box) return;
-  const wings = Object.entries(GATE_SIDES).filter(([, s]) => s[0] === state.term);
+  const wings = state.airport === "xsp" ? [] : Object.entries(GATE_SIDES).filter(([, s]) => s[0] === state.term);
   box.hidden = !wings.length;
   if (!wings.length) { box.innerHTML = ""; return; }
   box.style.setProperty("--tc", `var(--t${state.term})`);
@@ -750,6 +799,36 @@ function renderWings() {
     `<button type="button" data-wing="${esc(wing)}" aria-pressed="${state.wing === wing}"${title ? ` title="${esc(title)}"` : ""}>${esc(label)}</button>`;
   box.innerHTML = btn("all", `All T${state.term}`, "") +
     wings.map(([letter, s]) => btn(s[1], s[1], `Gates ${letter}`)).join("");
+}
+
+/** Board airport switch UI: pressed state, terminal chips (Changi only), Seletar note. */
+function applyAirportUI() {
+  const xsp = state.airport === "xsp";
+  if (xsp && /^[1-4]$/.test(state.term)) setTerm("all");
+  setPressed(".seg-airport [data-airport]", "airport", state.airport);
+  document.body.dataset.airport = state.airport;
+  for (const b of $$('.chips button[data-term]')) {
+    if (/^[1-4]$/.test(b.dataset.term)) b.hidden = xsp;
+  }
+  $("#xsp-note").hidden = !xsp;
+  $("#search").placeholder = xsp ? "Search city or flight" : "Search city, airline or flight";
+  renderWings();
+}
+
+/** Changi <-> Seletar on the Board tab. Seletar has no terminals: a T1-T4 filter resets to All. */
+function setAirport(airport) {
+  if (airport === state.airport) return;
+  state.airport = airport;
+  store.set("airport", airport);
+  if (airport === "xsp" && /^[1-4]$/.test(state.term)) setTerm("all");
+  state.wing = "all";
+  state.open.clear();
+  state.showEarlier = false;
+  applyAirportUI();
+  const date = currentDate();
+  const have = state.boards.has(boardId(date));
+  renderBoard();
+  loadBoard(date, { quiet: have, airport });
 }
 
 /** Switch the terminal filter (All, T1-T4, Saved, Standby); the wing resets to All. */
@@ -801,6 +880,7 @@ function bindBoard() {
     if (e.key === FAV_KEY) { favs = pruneFavs(readFavs()); renderSavedChip(); renderBoard(); }
   });
 
+  $$(".seg-airport [data-airport]").forEach((b) => b.addEventListener("click", () => setAirport(b.dataset.airport)));
   $$("[data-dir]").forEach((b) => b.addEventListener("click", () => {
     state.dir = b.dataset.dir; store.set("dir", state.dir); state.open.clear();
     setPressed("[data-dir]", "dir", state.dir); renderBoard();
@@ -812,8 +892,9 @@ function bindBoard() {
     state.day = Number(b.dataset.day); state.open.clear(); state.showEarlier = false;
     setPressed("[data-day]", "day", state.day);
     const date = currentDate();
-    if (state.boards.has(date)) renderBoard();
-    loadBoard(date, { quiet: state.boards.has(date) });
+    const have = state.boards.has(boardId(date));
+    if (have) renderBoard();
+    loadBoard(date, { quiet: have, airport: state.airport });
   }));
   let t;
   $("#search").addEventListener("input", (e) => {
@@ -869,7 +950,7 @@ function toggleRow(k) {
 
 /** A flight on the board currently shown (any day), by direction and row key. */
 function findFlight(dir, key) {
-  const data = state.boards.get(currentDate());
+  const data = state.boards.get(boardId(currentDate()));
   return ((data && data[dir]) || []).find((f) => flightKey(f) === key) || null;
 }
 
@@ -1058,6 +1139,7 @@ function resolveFocus() {
 /** Tracker -> board: show the flight's row, expanded, on today's board. */
 function viewOnBoard(f) {
   const key = flightKey(f);
+  if (state.airport !== "sin") { state.airport = "sin"; store.set("airport", "sin"); applyAirportUI(); }
   state.dir = f.dir; store.set("dir", state.dir);
   state.day = 0;
   state.q = ""; $("#search").value = "";
@@ -1540,8 +1622,9 @@ function refreshNow({ manual = true } = {}) {
   if (refreshing) return refreshing;
   const started = Date.now();
   if (manual) setSpinning(true); else pulseRefresh();
-  const date = state.view === "board" ? currentDate() : sgtDate(0);
-  const jobs = [loadBoard(date, { quiet: true, fresh: manual }), loadTraffic({ fresh: manual })];
+  const onBoard = state.view === "board";
+  const date = onBoard ? currentDate() : sgtDate(0);
+  const jobs = [loadBoard(date, { quiet: true, fresh: manual, airport: onBoard ? state.airport : "sin" }), loadTraffic({ fresh: manual })];
   refreshing = Promise.allSettled(jobs).then(async () => {
     if (manual) {
       const wait = MIN_SPIN_MS - (Date.now() - started);
@@ -1564,16 +1647,17 @@ function refreshNow({ manual = true } = {}) {
 const SHARE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function shareUrl(f, dir) {
-  const q = new URLSearchParams({ flight: f.fn, day: f.d, dir });
+  const q = new URLSearchParams({ flight: f.fn, day: f.d, dir, ...(isXsp(f) ? { airport: "xsp" } : {}) });
   return `${location.origin}${location.pathname}?${q}`;
 }
 
 async function shareFlight(dir, f) {
   const url = shareUrl(f, dir);
   const when = fmtDay.format(new Date(f.d + "T00:00:00Z"));
+  const home = isXsp(f) ? "Singapore Seletar" : "Singapore";
   const text = dir === "dep"
-    ? `${f.fn} Singapore → ${f.city || f.ap}, departs ${shownTime(f)} on ${when}`
-    : `${f.fn} ${f.city || f.ap} → Singapore, arrives ${shownTime(f)} on ${when}`;
+    ? `${f.fn} ${home} → ${f.city || f.ap}, departs ${shownTime(f)} on ${when}`
+    : `${f.fn} ${f.city || f.ap} → ${home}, arrives ${shownTime(f)} on ${when}`;
   if (navigator.share) {
     try { await navigator.share({ title: `${f.fn} · flightlah`, text, url }); return; }
     catch (e) { if (e && e.name === "AbortError") return; /* else fall back to copying */ }
@@ -1599,13 +1683,14 @@ function readShareLink() {
   if (offset === undefined && /^\d{4}-\d{2}-\d{2}$/.test(dayRaw)) {
     offset = Math.round((Date.parse(dayRaw) - Date.parse(sgtDate(0))) / 86400e3);
   }
-  return { fn, dir, offset: Number.isFinite(offset) ? offset : NaN };
+  const airport = (q.get("airport") || "").toLowerCase() === "xsp" ? "xsp" : "sin";
+  return { fn, dir, airport, offset: Number.isFinite(offset) ? offset : NaN };
 }
 
 /** Once the linked day's board is loaded: open, scroll to and highlight the flight. */
 function resolveShareLink() {
   const link = state.pendingShare;
-  const data = state.boards.get(currentDate());
+  const data = state.boards.get(boardId(currentDate()));
   if (!link || !data) return;
   state.pendingShare = null;
   const dirs = link.dir ? [link.dir] : ["dep", "arr"];
@@ -1680,6 +1765,7 @@ function init() {
       state.term = "all";
       state.wing = "all";
       state.q = "";
+      state.airport = link.airport;
       setPressed("[data-day]", "day", state.day);
       setPressed("[data-dir]", "dir", state.dir);
       setPressed("[data-term]", "term", state.term);
@@ -1690,7 +1776,8 @@ function init() {
     }
   }
 
-  loadBoard(currentDate());
+  applyAirportUI();
+  loadBoard(currentDate(), { airport: state.airport });
   if (state.view === "board") loadTraffic(); // the Tracker fetches its own area when it starts
   state.lastRefresh = Date.now();
   // Auto-refresh every 2 minutes while the page is visible (the Tracker tab

@@ -1,18 +1,20 @@
 # Changi Board
 
-A minimalist live flight board and aircraft tracker for Singapore Changi Airport (SIN), terminals 1–4. Flights whose terminal isn't assigned yet show as "TBC".
+A minimalist live flight board and aircraft tracker for Singapore Changi Airport (SIN), terminals 1–4, plus a
+small board for Seletar Airport (XSP). Changi flights whose terminal isn't assigned yet show as "TBC".
 It runs entirely on the Cloudflare free tier:
 
 ```
-Worker cron (*/10) ──► Changi GraphQL ──► normalise ──► hash ──► Workers KV (write only on change)
-                                                                      │
-Pages (web/) ──► GET /api/board    ◄──────────────────────────────────┘
+Worker cron (*/5)  ──► Changi GraphQL (every 2nd run) ──► normalise ──► hash ──► Workers KV (write only on change)
+                   ──► Seletar items.json (every run) ──► normalise ──► hash ──┘     │
+Pages (web/) ──► GET /api/board[?airport=xsp]  ◄─────────────────────────────────────┘
              ──► GET /api/traffic  ──► adsb.lol (backup: airplanes.live), cached ~10 s, never in KV
 ```
 
 | Path | What |
 | --- | --- |
 | `worker/src/changi.js` | **All** Changi data-source logic (endpoint, headers, query, paging, normalisation). Swap this one file for the official developer-portal API later. |
+| `worker/src/seletar.js` | Seletar (XSP) board: fetch with retries, normalise, one KV snapshot for yesterday/today/tomorrow. |
 | `worker/src/traffic.js` | ADS-B proxy by map area or callsign (adsb.lol, falls back to airplanes.live). |
 | `worker/src/index.js` | Cron handler, KV caching, `/api/board`, `/api/traffic`, CORS. |
 | `worker/test/` | `npm test` — offline unit tests with a mocked upstream and in-memory KV. |
@@ -25,6 +27,11 @@ Pages (web/) ──► GET /api/board    ◄────────────
   `{ date, updatedAt, source, stale, error, dep: Flight[], arr: Flight[] }`.
   If the cron hasn't run yet it fetches live and seeds KV.
 - `GET /api/board?date=yyyy-MM-dd` — another day (±7 days). Fetched live, cached ~5 min; falls back to KV.
+- `GET /api/board?airport=xsp[&date=yyyy-MM-dd]` — Seletar, yesterday / today / tomorrow only, from the cron's KV
+  snapshot: `{ airport: "XSP", date, updatedAt, source, stale, error, dep, arr }`. Same `Flight` fields where they
+  apply (`t` is null), plus `apt: "XSP"`, `door` (departures, from GATE) and `belt` (arrivals). `status` is the
+  airport's REM_BLI text as published (empty until it has one); `et`/`ets` is BEST_DATE_TIME (falling back to the
+  actual, then estimated time when it's blank).
 - `GET /api/traffic` — aircraft near Changi (used for the board's live dots):
   `{ source, at, area, ac: [{ hex, cs, reg, t, lat, lon, alt, gnd, gs, trk, sq }] }`.
 - `GET /api/traffic?lat=&lon=&dist=` — aircraft around a map centre; `dist` in nautical miles, capped at 250.
@@ -59,7 +66,7 @@ npm install
 npx wrangler kv namespace create BOARD_KV
 #    -> replace id = "000…000" under [[kv_namespaces]] with the printed id, commit it.
 
-# 2. Deploy the Worker (also registers the */10 cron)
+# 2. Deploy the Worker (also registers the */5 cron)
 npx wrangler deploy
 #    -> note the URL, e.g. https://changi-board.<subdomain>.workers.dev
 
@@ -81,7 +88,7 @@ Check it: `curl https://changi-board.<subdomain>.workers.dev/api/board | head -c
 
 ```sh
 cd worker && npm install && npm run dev        # Worker on http://localhost:8787
-# trigger the cron: curl "http://localhost:8787/__scheduled?cron=*/10+*+*+*+*"
+# trigger the cron: curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"
 npx serve ../web                               # frontend; on localhost it calls :8787 automatically
 npm test                                       # unit tests
 ```
@@ -90,6 +97,10 @@ npm test                                       # unit tests
 
 - **Subrequests:** a full day is ~500 flights per direction; the API allows `page_size` up to ~512, so a cron run
   makes ~4 upstream calls (cap 12; the limit is 50).
+- **Seletar:** every 5 min the cron makes 6 calls (yesterday/today/tomorrow × dep/arr). The endpoint 404s at
+  random for about a minute, so each call is retried twice, 12 s apart (kept under ~26 s per run); worst case 18
+  subrequests. A day that still fails keeps its last good copy and is served as stale. Its one KV key is written
+  only on change plus a 30 min heartbeat (~48–150 writes/day), and a status key only when failures start or end.
 - **KV writes (1,000/day):** the board is written only when its hash changes, plus a heartbeat write at most every
   30 min so "last updated" stays honest. Worst case 144/day, plus a few around midnight and on status changes.
 - **KV reads (100,000/day):** `/api/board` responses are memoised per isolate and cached at the edge for 30 s.

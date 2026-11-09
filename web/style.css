@@ -130,6 +130,14 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   50% { background-color: #c9383d; box-shadow: 0 0 0 5px rgba(255, 90, 95, 0); }
 }
 
+/* Changi | Seletar on the Board (same look as the Tracker's airport buttons). */
+.seg-airport button[data-airport="sin"][aria-pressed="true"] { color: var(--accent); }
+.seg-airport button[data-airport="xsp"][aria-pressed="true"] { color: var(--seletar); }
+.f-term.xsp, .kv dd .xsp { color: var(--seletar); }
+.xsp-note { margin: -4px 0 0; color: var(--muted); font-size: 12px; }
+.xsp-note::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--seletar); vertical-align: 0; }
+body[data-airport="xsp"] .col-head { color: var(--seletar); }
+
 .refresh-group { display: flex; align-items: center; gap: 2px; margin-left: auto; min-width: 0; }
 .updated { margin: 0; color: var(--faint); font-size: 12px; text-align: right; }
 
@@ -540,7 +548,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   .controls { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 16px; }
   .controls > .row:first-child { flex: none; }
   .controls .search { flex: 1 1 260px; width: auto; }
-  .controls > .row-chips, .controls > .chips-wing { flex: 1 1 100%; }
+  .controls > .row-chips, .controls > .chips-wing, .controls > .xsp-note { flex: 1 1 100%; }
   .seg[aria-label="Direction"] { display: none; }
   .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; align-items: start; padding: 0 16px; }
   .board-col { min-width: 0; }
@@ -562,7 +570,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
   .intro { padding-top: 8px; }
   .controls { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; padding-top: 10px; }
   .controls > .row:first-child { flex-wrap: nowrap; }
-  .controls > .row-chips, .controls > .chips-wing { grid-column: 1 / -1; }
+  .controls > .row-chips, .controls > .chips-wing, .controls > .xsp-note { grid-column: 1 / -1; }
   .search { padding-top: 8px; padding-bottom: 8px; }
   .card {
     left: auto; right: calc(12px + env(safe-area-inset-right, 0px)); bottom: 12px;

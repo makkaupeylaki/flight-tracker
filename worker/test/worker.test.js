@@ -4,6 +4,7 @@ import worker, { refreshBoard } from "../src/index.js";
 import { normalise, sgtToday, addDays, gateBase, effectiveTs } from "../src/changi.js";
 import { makeKV, installCaches, makeCtx } from "./harness.js";
 import { normaliseArea, normaliseCallsign, MAX_DIST_NM, fetchTraffic } from "../src/traffic.js";
+import { normaliseXsp, refreshSeletar, xspUrl, XSP_KEY, XSP_STATUS_KEY } from "../src/seletar.js";
 
 installCaches();
 const today = sgtToday();
@@ -22,6 +23,7 @@ function flight(fn, t, status = "Scheduled", date = today) {
 function mockChangi(flights, { fail = false } = {}) {
   let calls = 0;
   globalThis.fetch = async (url, init) => {
+    if (String(url).includes("seletarairport.com")) return Response.json([]); // Seletar: tested separately
     calls++;
     if (fail) return new Response("blocked", { status: 403 });
     const q = JSON.parse(init.body).query;
@@ -221,4 +223,127 @@ test("traffic passes the squawk through and drops the feed's emergency field", a
   assert.equal(ac[0].cs, "SIA322");
   assert.equal(ac[1].gnd, true);
   assert.ok(!("emergency" in ac[0]));
+});
+
+// ---------------------------------------------------------------- Seletar
+
+function xspRow(fnr, std, extra = {}) {
+  return {
+    STD_DATE_TIME: `${std}:00`, BEST_DATE_TIME: "", ETD_DATE_TIME: "", ATD_DATE_TIME: "",
+    FNR: fnr, CITY: "Subang", CITY_CODE: "SZB", COUNTRY: "", FLIGHT_TYPE: "D",
+    AIRLINE: "Firefly", AIRLINE_CODE: "FY", GATE: "DOOR A", BELT: "", REM_BLI: "", ...extra,
+  };
+}
+
+/** Mock the Seletar site: `byUrl(type, date)` returns rows, a status number, or throws. */
+function mockSeletar(byUrl) {
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    const u = new URL(String(url));
+    seen.push({ url: String(url), ua: init && init.headers && init.headers["User-Agent"] });
+    const type = u.searchParams.get("flightType");
+    const d = u.searchParams.get("from").slice(0, 8);
+    const date = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+    const out = byUrl(type, date, seen.length);
+    if (typeof out === "number") return new Response("Not found", { status: out });
+    return Response.json(out);
+  };
+  return seen;
+}
+
+test("seletar: rows map to the board's Flight shape", () => {
+  const dep = normaliseXsp(xspRow("FY 3131", "2026-11-09 16:35", {
+    BEST_DATE_TIME: "2026-11-09 16:56:00", ATD_DATE_TIME: "2026-11-09 16:56:00", REM_BLI: "Departed", GATE: "DOOR B",
+  }), "dep");
+  assert.deepEqual(
+    { fn: dep.fn, al: dep.al, an: dep.an, city: dep.city, ap: dep.ap, d: dep.d, st: dep.st, et: dep.et, ets: dep.ets, door: dep.door, status: dep.status, apt: dep.apt, t: dep.t },
+    { fn: "FY3131", al: "FY", an: "Firefly", city: "Subang", ap: "SZB", d: "2026-11-09", st: "16:35", et: "16:56", ets: "2026-11-09 16:56", door: "Door B", status: "Departed", apt: "XSP", t: null },
+  );
+  const arr = normaliseXsp(xspRow("FY 3132", "2026-11-09 18:30", { ATD_DATE_TIME: "2026-11-09 18:30:00", BELT: "2", REM_BLI: "Landed", GATE: "" }), "arr");
+  assert.equal(arr.ets, "2026-11-09 18:30", "blank BEST falls back to the actual time");
+  assert.equal(arr.belt, "2");
+  assert.equal(arr.door, null);
+  assert.equal(normaliseXsp(xspRow("FY 1", "2026-11-10 08:30"), "dep").status, "", "no status yet stays empty");
+  assert.equal(normaliseXsp({ FNR: "FY 1" }, "dep"), null, "no scheduled time -> dropped");
+  assert.equal(xspUrl("A", "2026-11-10"), "https://www.seletarairport.com/content/seletarAirport/flightInfo/items.json?flightType=A&from=20261110000000&to=20261110235959");
+});
+
+test("seletar: retries random 404s, sends a User-Agent, covers yesterday/today/tomorrow", async () => {
+  const env = { BOARD_KV: makeKV() };
+  const tries = new Map();
+  const seen = mockSeletar((type, date) => {
+    const k = `${type}${date}`;
+    tries.set(k, (tries.get(k) || 0) + 1);
+    if (date === today && tries.get(k) < 3) return 404; // flaky twice, then fine
+    return [xspRow(type === "D" ? "FY 3123" : "FY 3122", `${date} 08:30`)];
+  });
+  const r = await refreshSeletar(env, { backoffMs: 0 });
+  assert.deepEqual(r.failed, []);
+  assert.equal(r.written, true);
+  assert.deepEqual(r.dates, [addDays(today, -1), today, addDays(today, 1)]);
+  assert.equal(tries.get(`D${today}`), 3);
+  assert.ok(seen.every((s) => s.ua && s.ua.length > 0), "User-Agent must be non-empty");
+  assert.ok(seen.every((s) => s.url.startsWith("https://www.seletarairport.com/")));
+  const snap = JSON.parse(env.BOARD_KV.store.get(XSP_KEY));
+  assert.equal(snap.days[today].dep[0].fn, "FY3123");
+  assert.equal(snap.days[today].arr[0].fn, "FY3122");
+  assert.equal(env.BOARD_KV.store.get(XSP_STATUS_KEY), undefined, "no status write while healthy");
+
+  const w = env.BOARD_KV.writes;
+  await refreshSeletar(env, { backoffMs: 0 });
+  assert.equal(env.BOARD_KV.writes, w, "unchanged data must not write");
+});
+
+test("seletar: still failing after retries keeps the last good snapshot, flagged stale", async () => {
+  const env = { BOARD_KV: makeKV() };
+  const ctx = makeCtx();
+  mockSeletar((type, date) => [xspRow("FY 3125", `${date} 09:10`, { REM_BLI: "Gate Open" })]);
+  await refreshSeletar(env, { backoffMs: 0 });
+
+  let calls = 0;
+  mockSeletar(() => { calls++; return 404; });
+  const r = await refreshSeletar(env, { backoffMs: 0 });
+  assert.equal(calls, 18, "6 lists x 3 attempts");
+  assert.equal(r.failed.length, 3);
+  assert.equal(r.written, false);
+  assert.equal(JSON.parse(env.BOARD_KV.store.get(XSP_STATUS_KEY)).ok, false);
+
+  const body = await (await worker.fetch(new Request("https://x/api/board?airport=xsp"), env, ctx)).json();
+  assert.equal(body.airport, "XSP");
+  assert.equal(body.stale, true);
+  assert.match(body.error, /404/);
+  assert.equal(body.dep[0].fn, "FY3125");
+  assert.equal(body.dep[0].status, "Gate Open");
+
+  // Recovers: status flips back to ok (one write), data served fresh.
+  mockSeletar((type, date) => [xspRow("FY 3125", `${date} 09:10`, { REM_BLI: "Boarding" })]);
+  await refreshSeletar(env, { backoffMs: 0 });
+  assert.equal(JSON.parse(env.BOARD_KV.store.get(XSP_STATUS_KEY)).ok, true);
+});
+
+test("seletar API: only yesterday/today/tomorrow; an empty day is fine", async () => {
+  const env = { BOARD_KV: makeKV() };
+  mockSeletar((type, date) => (date === addDays(today, 1) ? [] : [xspRow("FY 3127", `${date} 11:20`)]));
+  await refreshSeletar(env, { backoffMs: 0 });
+  const bad = await worker.fetch(new Request(`https://x/api/board?airport=xsp&date=${addDays(today, 3)}`), env, makeCtx());
+  assert.equal(bad.status, 400);
+  const tmrw = await (await worker.fetch(new Request(`https://x/api/board?airport=xsp&date=${addDays(today, 1)}`), env, makeCtx())).json();
+  assert.deepEqual([tmrw.dep.length, tmrw.arr.length, tmrw.stale], [0, 0, false]);
+  assert.equal((await worker.fetch(new Request("https://x/api/board?airport=lhr"), env, makeCtx())).status, 400);
+});
+
+test("cron: Seletar every 5 min, Changi only on the 10-minute runs", async () => {
+  const env = { BOARD_KV: makeKV() };
+  let changi = 0, xsp = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("seletarairport.com")) { xsp++; return Response.json([]); }
+    changi++;
+    return Response.json({ data: { getFlights: { next_token: null, flights: [] } } });
+  };
+  const at = (min) => Date.UTC(2026, 10, 10, 3, min);
+  let ctx = makeCtx(); await worker.scheduled({ scheduledTime: at(5) }, env, ctx); await ctx.drain();
+  assert.deepEqual([changi, xsp], [0, 6]);
+  ctx = makeCtx(); await worker.scheduled({ scheduledTime: at(10) }, env, ctx); await ctx.drain();
+  assert.ok(changi > 0);
+  assert.equal(xsp, 12);
 });

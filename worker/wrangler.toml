@@ -2,9 +2,10 @@ name = "changi-board"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
-# Cron: refresh today's board every 10 minutes.
+# Cron every 5 minutes: the Seletar board each run, Changi's every other run
+# (still every 10 minutes; see runCron in src/index.js).
 [triggers]
-crons = ["*/10 * * * *"]
+crons = ["*/5 * * * *"]
 
 # Workers KV cache of the board, written only when the data changes.
 # Create it once with:  npx wrangler kv namespace create BOARD_KV

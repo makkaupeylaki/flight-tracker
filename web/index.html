@@ -40,6 +40,10 @@
       <p class="intro">Live departures and arrivals for Singapore Changi Airport, plus a live plane tracker.</p>
       <div class="controls">
         <div class="row">
+          <div class="seg seg-airport" role="group" aria-label="Airport">
+            <button data-airport="sin" aria-pressed="true">Changi</button>
+            <button data-airport="xsp" aria-pressed="false">Seletar</button>
+          </div>
           <div class="seg" role="group" aria-label="Direction">
             <button data-dir="dep" aria-pressed="true">Departures</button>
             <button data-dir="arr" aria-pressed="false">Arrivals</button>
@@ -65,6 +69,7 @@
           </div>
         </div>
         <div id="wings" class="chips chips-wing" role="group" aria-label="Wing" hidden></div>
+        <p id="xsp-note" class="xsp-note" hidden>Seletar Airport (XSP) · no terminals · door shown for departures, belt for arrivals</p>
       </div>
 
       <div id="board" class="board" aria-busy="true">
@@ -72,7 +77,8 @@
       </div>
 
       <footer class="foot">
-        Flight data: Changi Airport (<a href="https://www.changiairport.com" rel="noopener" target="_blank">changiairport.com</a>).
+        Flight data: Changi Airport (<a href="https://www.changiairport.com" rel="noopener" target="_blank">changiairport.com</a>)
+        and Seletar Airport (<a href="https://www.seletarairport.com" rel="noopener" target="_blank">seletarairport.com</a>).
         Aircraft positions: <a href="https://adsb.lol" rel="noopener" target="_blank">adsb.lol</a> community ADS-B feed
         (backup: <a href="https://airplanes.live" rel="noopener" target="_blank">airplanes.live</a>).
         Unofficial app.

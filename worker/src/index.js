@@ -1,10 +1,13 @@
 // Changi Board Worker: cron fetcher + JSON API.
 //
-//   cron */10      -> fetch today's board, write to KV only when it changes
+//   cron */5       -> Seletar board every run; Changi's every other run (every 10 min).
+//                     Both write to KV only when they change (plus a 30 min heartbeat)
 //   GET /api/board -> today's board from KV (?date=yyyy-MM-dd for other days)
+//   GET /api/board?airport=xsp[&date=] -> Seletar, yesterday / today / tomorrow from KV
 //   GET /api/traffic -> live aircraft near Changi (ADS-B), cached ~10 s
 
 import { fetchBoard, sgtToday, addDays } from "./changi.js";
+import { refreshSeletar, XSP_KEY, XSP_STATUS_KEY } from "./seletar.js";
 import { fetchTraffic, fetchCallsign, normaliseArea, normaliseCallsign } from "./traffic.js";
 
 const BOARD_TTL_S = 4 * 86400; // keep a few days of boards in KV
@@ -117,7 +120,29 @@ async function setStatus(env, ok, error) {
   );
 }
 
-async function runCron(env) {
+/**
+ * Cron, every 5 minutes: Seletar each run, Changi on the runs at minutes 0, 10,
+ * 20... (so Changi keeps its 10-minute schedule and KV writes). Without a
+ * scheduled time (tests, manual trigger) both run. They run side by side, so
+ * Seletar's retries never hold up Changi.
+ */
+async function runCron(env, scheduledTime) {
+  const minute = scheduledTime ? new Date(scheduledTime).getUTCMinutes() : 0;
+  const jobs = [runSeletar(env)];
+  if (minute % 10 < 5) jobs.push(runChangi(env));
+  await Promise.allSettled(jobs);
+}
+
+async function runSeletar(env) {
+  try {
+    const r = await refreshSeletar(env);
+    console.log(`seletar ${r.dates.join(" ")}: ${r.written ? "written" : "unchanged"}${r.failed.length ? `, failed ${r.errors.join("; ")}` : ""}`);
+  } catch (e) {
+    console.error(`seletar failed: ${e.message}`);
+  }
+}
+
+async function runChangi(env) {
   const now = Date.now();
   const today = sgtToday(now);
   const dates = [today];
@@ -152,7 +177,47 @@ function present(board, { source, error, status }) {
   };
 }
 
+/**
+ * Seletar: served from the cron's KV snapshot (yesterday, today, tomorrow). A day
+ * the cron couldn't refresh keeps its last good copy and is flagged stale. A day
+ * not in the snapshot yet (just after midnight) comes back empty and stale.
+ */
+async function handleSeletar(env, ctx, url) {
+  const today = sgtToday();
+  const date = url.searchParams.get("date") || today;
+  if (![-1, 0, 1].map((n) => addDays(today, n)).includes(date)) {
+    return json({ error: "Seletar covers yesterday, today and tomorrow (date=yyyy-MM-dd)" }, { status: 400 });
+  }
+  const body = await cached(ctx, `xsp-${date}`, TODAY_CACHE_S, async () => {
+    let [snap, status] = await Promise.all([env.BOARD_KV.get(XSP_KEY, "json"), env.BOARD_KV.get(XSP_STATUS_KEY, "json")]);
+    let source = "kv";
+    if (!snap) {
+      // Cold start (cron hasn't run yet): one quick try, no retries, and seed KV.
+      await refreshSeletar(env, { retries: 0 });
+      [snap, status] = await Promise.all([env.BOARD_KV.get(XSP_KEY, "json"), env.BOARD_KV.get(XSP_STATUS_KEY, "json")]);
+      source = "live";
+    }
+    const day = snap && snap.days && snap.days[date];
+    const failing = status && status.ok === false && (status.dates || []).includes(date);
+    const age = snap ? Date.now() - snap.updatedAt : Infinity;
+    return {
+      airport: "XSP",
+      date,
+      updatedAt: snap ? snap.updatedAt : Date.now(),
+      source,
+      stale: !day || failing || age > STALE_MS,
+      error: failing ? status.error : day ? null : "Seletar flights for this day aren't available yet",
+      dep: day ? day.dep : [],
+      arr: day ? day.arr : [],
+    };
+  });
+  return json(body, { maxAge: TODAY_CACHE_S });
+}
+
 async function handleBoard(request, env, ctx, url) {
+  const airport = (url.searchParams.get("airport") || "sin").toLowerCase();
+  if (airport === "xsp") return handleSeletar(env, ctx, url);
+  if (airport !== "sin") return json({ error: "airport must be sin or xsp" }, { status: 400 });
   const today = sgtToday();
   const date = url.searchParams.get("date") || today;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < addDays(today, -DATE_WINDOW_DAYS) || date > addDays(today, DATE_WINDOW_DAYS)) {
@@ -263,7 +328,7 @@ export default {
       if (url.pathname === "/api/board") res = await handleBoard(request, env, ctx, url);
       else if (url.pathname === "/api/traffic") res = await handleTraffic(request, env, ctx, url);
       else if (url.pathname === "/" || url.pathname === "/api") {
-        res = json({ name: "changi-board", endpoints: ["/api/board", "/api/board?date=yyyy-MM-dd", "/api/traffic"] });
+        res = json({ name: "changi-board", endpoints: ["/api/board", "/api/board?date=yyyy-MM-dd", "/api/board?airport=xsp&date=yyyy-MM-dd", "/api/traffic"] });
       } else res = json({ error: "Not found" }, { status: 404 });
     } catch (e) {
       console.error(e);
@@ -274,6 +339,6 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runCron(env));
+    ctx.waitUntil(runCron(env, event && event.scheduledTime));
   },
 };
