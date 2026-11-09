@@ -813,6 +813,25 @@ function applyAirportUI() {
   $("#xsp-note").hidden = !xsp;
   $("#search").placeholder = xsp ? "Search city or flight" : "Search city, airline or flight";
   renderWings();
+  renderAirportText();
+}
+
+const AIRPORT_TEXT = {
+  sin: {
+    sub: "SIN · T1–T4",
+    intro: "Live departures and arrivals for Singapore Changi Airport, plus a live plane tracker.",
+  },
+  xsp: {
+    sub: "XSP · Seletar",
+    intro: "Live departures and arrivals for Seletar Airport, plus a live plane tracker.",
+  },
+};
+
+/** Header line under the logo and the Board intro: follow the Board's airport (Tracker keeps Changi's). */
+function renderAirportText() {
+  const t = AIRPORT_TEXT[state.view === "board" && state.airport === "xsp" ? "xsp" : "sin"];
+  $(".brand-sub").textContent = t.sub;
+  $(".intro").textContent = t.intro;
 }
 
 /** Changi <-> Seletar on the Board tab. Seletar has no terminals: a T1-T4 filter resets to All. */
@@ -1725,6 +1744,7 @@ function show(view) {
   $("#view-tracker").hidden = view !== "tracker";
   document.body.classList.toggle("tracking", view === "tracker");
   history.replaceState(null, "", view === "tracker" ? "#tracker" : location.pathname + location.search);
+  renderAirportText();
   if (view === "tracker") startTracker();
   else {
     stopTracker();
