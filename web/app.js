@@ -543,7 +543,7 @@ function renderUpdated(data) {
   const dataTime = fmtSGT.format(new Date(data.updatedAt));
   const old = Date.now() - data.updatedAt > OLD_DATA_MS;
   const stale = data.stale || state.error;
-  el.title = `Flight data as of ${dataTime} SGT`;
+  el.title = `Flight data last changed at ${dataTime} SGT`;
   // One line: when the page last updated, then the most useful second fact.
   const tail = stale
     ? `<span class="stale" title="${esc(data.error || state.error || "")}">data may be slightly old</span>`
@@ -902,7 +902,10 @@ function viewOnBoard(f) {
 
 function initMap() {
   if (tracker.map || !window.L) return;
-  const map = L.map("map", { center: CHANGI, zoom: CHANGI_ZOOM, zoomControl: true, attributionControl: true });
+  // Mouse-wheel zoom is off so scrolling the page never zooms the map;
+  // Ctrl/Cmd + scroll (and trackpad pinch, which sends Ctrl + wheel) still zooms.
+  const map = L.map("map", { center: CHANGI, zoom: CHANGI_ZOOM, zoomControl: true, attributionControl: true, scrollWheelZoom: false });
+  enableModifierWheelZoom(map);
   const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://adsb.lol">adsb.lol</a> / <a href="https://airplanes.live">airplanes.live</a>',
@@ -952,7 +955,54 @@ function initMap() {
     },
   });
   new Refresh().addTo(map);
+  // "Reset to Changi": back to the default view, under the zoom buttons.
+  const Reset = L.Control.extend({
+    options: { position: "topleft" },
+    onAdd() {
+      const bar = L.DomUtil.create("div", "leaflet-bar");
+      const btn = L.DomUtil.create("button", "map-reset", bar);
+      btn.type = "button";
+      btn.title = "Reset to Changi";
+      btn.setAttribute("aria-label", "Reset map to Changi");
+      btn.innerHTML = RESET_SVG;
+      L.DomEvent.disableClickPropagation(bar);
+      L.DomEvent.on(btn, "click", () => map.setView(CHANGI, CHANGI_ZOOM));
+      return bar;
+    },
+  });
+  new Reset().addTo(map);
   tracker.map = map;
+}
+
+const RESET_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
+/**
+ * Zoom with the wheel only while Ctrl or Cmd is held; a plain wheel scrolls
+ * the page as usual and shows a short hint over the map.
+ */
+function enableModifierWheelZoom(map) {
+  const el = map.getContainer();
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  let acc = 0, last = 0, hintTimer;
+  const hint = L.DomUtil.create("div", "map-hint", el);
+  hint.setAttribute("aria-hidden", "true");
+  hint.textContent = `Use ${isMac ? "⌘" : "Ctrl"} + scroll to zoom the map`;
+  el.addEventListener("wheel", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) {
+      hint.classList.add("show");
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => hint.classList.remove("show"), 1200);
+      return; // let the page scroll
+    }
+    e.preventDefault(); // stop the browser's own page zoom
+    hint.classList.remove("show");
+    acc += e.deltaY;
+    const now = Date.now();
+    if (Math.abs(acc) < 40 || now - last < 120) return;
+    const step = acc < 0 ? 1 : -1;
+    acc = 0; last = now;
+    map.setZoomAround(map.mouseEventToContainerPoint(e), map.getZoom() + step);
+  }, { passive: false });
 }
 
 function planeIcon(ac, selected, onBoard) {
@@ -1113,6 +1163,27 @@ function notLiveMessage(f) {
   return `${fn} isn't within range of Changi yet. It's due to land at ${esc(f.et || f.st)} and will appear here once it's close.`;
 }
 
+/**
+ * Show or fully hide the aircraft card. When closed it is hidden (no peek on
+ * tall screens), out of the accessibility tree, and none of its controls can be
+ * reached with Tab.
+ */
+function setCardOpen(open) {
+  const card = $("#card");
+  card.classList.toggle("show", open);
+  card.setAttribute("aria-hidden", String(!open));
+  if ("inert" in card) card.inert = !open;
+  for (const el of card.querySelectorAll("button, a, [tabindex]")) {
+    if (open) {
+      el.removeAttribute("tabindex");
+      if (el.tagName === "BUTTON") el.disabled = false;
+    } else {
+      el.setAttribute("tabindex", "-1");
+      if (el.tagName === "BUTTON") el.disabled = true;
+    }
+  }
+}
+
 function renderCard() {
   const card = $("#card");
   const entry = tracker.selected && tracker.markers.get(tracker.selected);
@@ -1128,14 +1199,12 @@ function renderCard() {
       ${routeHTML(f)}
       <p class="c-msg">${notLiveMessage(f)}</p>
       ${boardLink}`;
-    card.classList.add("show");
-    card.setAttribute("aria-hidden", "false");
+    setCardOpen(true);
     return;
   }
   if (!entry) {
     tracker.cardFlight = null;
-    card.classList.remove("show");
-    card.setAttribute("aria-hidden", "true");
+    setCardOpen(false);
     return;
   }
   const { ac } = entry;
@@ -1159,8 +1228,7 @@ function renderCard() {
     </dl>
     ${entry.lost ? `<p class="c-lost">Signal lost — last known position.</p>` : ""}
     ${f ? boardLink : ""}`;
-  card.classList.add("show");
-  card.setAttribute("aria-hidden", "false");
+  setCardOpen(true);
 }
 
 /** (Re)start the Tracker's 15 s position poll for whatever area the map shows. */
@@ -1321,6 +1389,7 @@ function init() {
   bindBoard();
   $$(".tab").forEach((t) => t.addEventListener("click", () => show(t.dataset.view)));
   $(".card-close").addEventListener("click", () => select(null));
+  setCardOpen(false); // closed card: hidden and out of the Tab order from the start
   $("#card-body").addEventListener("click", (e) => {
     if (e.target.closest("[data-board]") && tracker.cardFlight) viewOnBoard(tracker.cardFlight);
   });
