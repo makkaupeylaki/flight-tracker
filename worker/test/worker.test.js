@@ -4,7 +4,7 @@ import worker, { refreshBoard } from "../src/index.js";
 import { normalise, sgtToday, addDays, gateBase, effectiveTs } from "../src/changi.js";
 import { makeKV, installCaches, makeCtx } from "./harness.js";
 import { normaliseArea, normaliseCallsign, MAX_DIST_NM, fetchTraffic } from "../src/traffic.js";
-import { normaliseXsp, refreshSeletar, xspUrl, XSP_KEY, XSP_STATUS_KEY } from "../src/seletar.js";
+import { normaliseXsp, refreshSeletar, xspUrl, XSP_KEY } from "../src/seletar.js";
 
 installCaches();
 const today = sgtToday();
@@ -287,7 +287,8 @@ test("seletar: retries random 404s, sends a User-Agent, covers yesterday/today/t
   const snap = JSON.parse(env.BOARD_KV.store.get(XSP_KEY));
   assert.equal(snap.days[today].dep[0].fn, "FY3123");
   assert.equal(snap.days[today].arr[0].fn, "FY3122");
-  assert.equal(env.BOARD_KV.store.get(XSP_STATUS_KEY), undefined, "no status write while healthy");
+  assert.deepEqual(snap.status, { ok: true });
+  assert.deepEqual([...env.BOARD_KV.store.keys()], [XSP_KEY], "Seletar uses one KV key");
 
   const w = env.BOARD_KV.writes;
   await refreshSeletar(env, { backoffMs: 0 });
@@ -305,8 +306,10 @@ test("seletar: still failing after retries keeps the last good snapshot, flagged
   const r = await refreshSeletar(env, { backoffMs: 0 });
   assert.equal(calls, 18, "6 lists x 3 attempts");
   assert.equal(r.failed.length, 3);
-  assert.equal(r.written, false);
-  assert.equal(JSON.parse(env.BOARD_KV.store.get(XSP_STATUS_KEY)).ok, false);
+  assert.equal(r.written, true, "the failure is a change: one write");
+  const failing = JSON.parse(env.BOARD_KV.store.get(XSP_KEY));
+  assert.equal(failing.status.ok, false);
+  assert.equal(failing.days[today].dep[0].status, "Gate Open", "last good copy kept");
 
   const body = await (await worker.fetch(new Request("https://x/api/board?airport=xsp"), env, ctx)).json();
   assert.equal(body.airport, "XSP");
@@ -318,7 +321,37 @@ test("seletar: still failing after retries keeps the last good snapshot, flagged
   // Recovers: status flips back to ok (one write), data served fresh.
   mockSeletar((type, date) => [xspRow("FY 3125", `${date} 09:10`, { REM_BLI: "Boarding" })]);
   await refreshSeletar(env, { backoffMs: 0 });
-  assert.equal(JSON.parse(env.BOARD_KV.store.get(XSP_STATUS_KEY)).ok, true);
+  assert.equal(JSON.parse(env.BOARD_KV.store.get(XSP_KEY)).status.ok, true);
+});
+
+test("seletar: at most one KV write per run, only on change, plus a 30 min heartbeat", async () => {
+  const env = { BOARD_KV: makeKV() };
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  try {
+    const ok = (status) => mockSeletar((type, date) => [xspRow("FY 3127", `${date} 11:20`, { REM_BLI: status })]);
+    const run = async () => { const w = env.BOARD_KV.writes; await refreshSeletar(env, { backoffMs: 0 }); return env.BOARD_KV.writes - w; };
+    const step = async (min) => { clock += min * 60e3; return run(); };
+
+    ok("");
+    assert.equal(await run(), 1, "first run seeds the snapshot");
+    assert.equal(await step(5), 0, "unchanged: no write");
+    ok("Gate Open");
+    assert.equal(await step(5), 1, "a status change: one write");
+    mockSeletar(() => 404);
+    assert.equal(await step(5), 1, "starts failing: one write (status in the snapshot)");
+    assert.equal(await step(5), 0, "still failing the same way: no write");
+    mockSeletar((type, date) => (date === today ? 404 : [xspRow("FY 3127", `${date} 11:20`, { REM_BLI: "Gate Open" })]));
+    assert.equal(await step(5), 1, "a different set of failed days: one write");
+    assert.equal(JSON.parse(env.BOARD_KV.store.get(XSP_KEY)).status.dates.join(), today);
+    ok("Gate Open");
+    assert.equal(await step(5), 1, "recovers: one write");
+    assert.equal(await step(5), 0);
+    assert.equal(await step(26), 1, "30 min since the last write: heartbeat");
+    assert.equal(await step(5), 0);
+    assert.deepEqual([...env.BOARD_KV.store.keys()], [XSP_KEY]);
+  } finally { Date.now = realNow; }
 });
 
 test("seletar API: only yesterday/today/tomorrow; an empty day is fine", async () => {

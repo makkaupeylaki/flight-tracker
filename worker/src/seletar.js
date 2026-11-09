@@ -12,8 +12,7 @@ import { addDays, sgtToday } from "./changi.js";
 const BASE = "https://www.seletarairport.com/content/seletarAirport/flightInfo/items.json";
 const UA = "flightlah/1.0 (+https://flightlah.pages.dev)";
 
-export const XSP_KEY = "xsp:board"; // one KV snapshot: yesterday, today and tomorrow
-export const XSP_STATUS_KEY = "xsp:status";
+export const XSP_KEY = "xsp:board"; // one KV snapshot: yesterday, today, tomorrow and the fetch status
 export const XSP_DAYS = [-1, 0, 1];
 
 export const XSP_RETRIES = 2; // 3 attempts in all
@@ -111,9 +110,13 @@ async function sha256(text) {
 
 /**
  * Cron step: fetch yesterday, today and tomorrow in parallel (with retries), then
- * write one KV snapshot if anything changed, or as a heartbeat every `heartbeatMs`.
- * A day that still fails keeps its last good copy and is listed as failed in the
- * status key (written only when the failure state changes). Returns a summary.
+ * make at most ONE KV write: the snapshot, which holds the days and the fetch status
+ * together. It's written only when its hash (days + which days failed) changes, or
+ * as a heartbeat every `heartbeatMs`. A day that still fails keeps its last good
+ * copy and is listed in `status.dates`, so the API serves it as stale.
+ *
+ * Snapshot: { updatedAt, changedAt, hash, days: { [date]: { dep, arr } },
+ *             status: { ok: true } | { ok: false, dates, error, since } }
  */
 export async function refreshSeletar(env, { now = Date.now(), heartbeatMs = 30 * 60e3, ttlS = 4 * 86400, ...opts } = {}) {
   const today = sgtToday(now);
@@ -126,34 +129,33 @@ export async function refreshSeletar(env, { now = Date.now(), heartbeatMs = 30 *
 
   const prev = await env.BOARD_KV.get(XSP_KEY, "json");
   const failed = results.filter((r) => r.error);
-  let written = false;
-  if (failed.length < results.length) {
-    const days = {};
-    for (const r of results) {
-      if (!r.error) days[r.date] = { dep: r.dep, arr: r.arr };
-      else if (prev && prev.days && prev.days[r.date]) days[r.date] = prev.days[r.date];
-    }
-    const hash = await sha256(JSON.stringify(days));
-    if (!prev || prev.hash !== hash || Date.now() - prev.updatedAt >= heartbeatMs) {
-      const t = Date.now();
-      await env.BOARD_KV.put(XSP_KEY, JSON.stringify({
-        updatedAt: t,
-        changedAt: prev && prev.hash === hash ? prev.changedAt || prev.updatedAt : t,
-        hash,
-        days,
-      }), { expirationTtl: ttlS });
-      written = true;
-    }
-  }
-
-  // Status: written only on transitions (ok <-> failing, or a different set of failed days).
-  const status = await env.BOARD_KV.get(XSP_STATUS_KEY, "json");
   const failedDates = failed.map((r) => r.date);
-  const was = status && !status.ok ? (status.dates || []).join(",") : "";
-  if (failedDates.join(",") !== was && (failedDates.length || (status && !status.ok))) {
-    await env.BOARD_KV.put(XSP_STATUS_KEY, JSON.stringify(failedDates.length
-      ? { ok: false, dates: failedDates, error: failed[0].error, since: Date.now() }
-      : { ok: true, at: Date.now() }));
+
+  const days = {};
+  for (const r of results) {
+    if (!r.error) days[r.date] = { dep: r.dep, arr: r.arr };
+    else if (prev && prev.days && prev.days[r.date]) days[r.date] = prev.days[r.date]; // last good copy
+  }
+  const prevStatus = prev && prev.status;
+  const sameFailure = prevStatus && prevStatus.ok === false && (prevStatus.dates || []).join(",") === failedDates.join(",");
+  const status = failedDates.length
+    ? { ok: false, dates: failedDates, error: failed[0].error, since: sameFailure ? prevStatus.since : Date.now() }
+    : { ok: true };
+
+  // The hash covers the flights and which days failed, not the error text or times,
+  // so a run that sees the same thing as the last one writes nothing.
+  const hash = await sha256(JSON.stringify({ days, failed: failedDates }));
+  const t = Date.now();
+  let written = false;
+  if (!prev || prev.hash !== hash || t - (prev.updatedAt || 0) >= heartbeatMs) {
+    await env.BOARD_KV.put(XSP_KEY, JSON.stringify({
+      updatedAt: t,
+      changedAt: prev && prev.hash === hash ? prev.changedAt || prev.updatedAt : t,
+      hash,
+      days,
+      status,
+    }), { expirationTtl: ttlS });
+    written = true;
   }
   return { dates, failed: failedDates, written, errors: failed.map((r) => `${r.date}: ${r.error}`) };
 }

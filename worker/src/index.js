@@ -7,7 +7,7 @@
 //   GET /api/traffic -> live aircraft near Changi (ADS-B), cached ~10 s
 
 import { fetchBoard, sgtToday, addDays } from "./changi.js";
-import { refreshSeletar, XSP_KEY, XSP_STATUS_KEY } from "./seletar.js";
+import { refreshSeletar, XSP_KEY } from "./seletar.js";
 import { fetchTraffic, fetchCallsign, normaliseArea, normaliseCallsign } from "./traffic.js";
 
 const BOARD_TTL_S = 4 * 86400; // keep a few days of boards in KV
@@ -189,15 +189,16 @@ async function handleSeletar(env, ctx, url) {
     return json({ error: "Seletar covers yesterday, today and tomorrow (date=yyyy-MM-dd)" }, { status: 400 });
   }
   const body = await cached(ctx, `xsp-${date}`, TODAY_CACHE_S, async () => {
-    let [snap, status] = await Promise.all([env.BOARD_KV.get(XSP_KEY, "json"), env.BOARD_KV.get(XSP_STATUS_KEY, "json")]);
+    let snap = await env.BOARD_KV.get(XSP_KEY, "json");
     let source = "kv";
     if (!snap) {
       // Cold start (cron hasn't run yet): one quick try, no retries, and seed KV.
       await refreshSeletar(env, { retries: 0 });
-      [snap, status] = await Promise.all([env.BOARD_KV.get(XSP_KEY, "json"), env.BOARD_KV.get(XSP_STATUS_KEY, "json")]);
+      snap = await env.BOARD_KV.get(XSP_KEY, "json");
       source = "live";
     }
     const day = snap && snap.days && snap.days[date];
+    const status = snap && snap.status; // fetch status lives in the same snapshot
     const failing = status && status.ok === false && (status.dates || []).includes(date);
     const age = snap ? Date.now() - snap.updatedAt : Infinity;
     return {

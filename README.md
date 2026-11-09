@@ -99,8 +99,9 @@ npm test                                       # unit tests
   makes ~4 upstream calls (cap 12; the limit is 50).
 - **Seletar:** every 5 min the cron makes 6 calls (yesterday/today/tomorrow × dep/arr). The endpoint 404s at
   random for about a minute, so each call is retried twice, 12 s apart (kept under ~26 s per run); worst case 18
-  subrequests. A day that still fails keeps its last good copy and is served as stale. Its one KV key is written
-  only on change plus a 30 min heartbeat (~48–150 writes/day), and a status key only when failures start or end.
+  subrequests. A day that still fails keeps its last good copy and is served as stale. Everything (the three days and
+  the fetch/failure status) lives in one KV snapshot, so a run makes at most one write: only when its hash (flights
+  plus which days failed) changes, or a 30 min heartbeat (~48–150 writes/day).
 - **KV writes (1,000/day):** the board is written only when its hash changes, plus a heartbeat write at most every
   30 min so "last updated" stays honest. Worst case 144/day, plus a few around midnight and on status changes.
 - **KV reads (100,000/day):** `/api/board` responses are memoised per isolate and cached at the edge for 30 s.
