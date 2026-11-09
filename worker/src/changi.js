@@ -33,11 +33,16 @@ export const TERMINALS = ["1", "2", "3", "4"];
 const PAGE_SIZE = "500";
 const MAX_PAGES = 6;
 
+// Changi's schema marks AirportDetail.name/code as non-nullable, but some
+// airports (e.g. NLU) have no details. AppSync then returns the full list with
+// that one flight's airport_details set to null *plus* an error. We keep the
+// list (see gql) and fall back to the airport code for the city name.
+const AIRPORT_FIELDS = "airport_details { name code country_code lat lng }";
 const FIELDS = `
   flight_number airline
   airline_details { name logo_url code }
   airport
-  airport_details { name code country_code lat lng }
+  ${AIRPORT_FIELDS}
   terminal scheduled_date scheduled_time
   estimated_timestamp actual_timestamp
   display_gate current_gate previous_gate check_in_row display_belt aircraft_type
@@ -62,21 +67,38 @@ function gqlString(s) {
   return JSON.stringify(String(s));
 }
 
+class ChangiError extends Error {
+  constructor(message, errors = []) { super(message); this.errors = errors; }
+}
+
+/**
+ * Run a query. GraphQL can return data *and* errors: one bad flight (e.g. a
+ * missing airport name) must not sink the whole board, so partial data is
+ * used and the errors are only logged. Throws only when there's no list.
+ */
 async function gql(query) {
   const res = await fetch(ENDPOINT, {
     method: "POST",
     headers: HEADERS,
     body: JSON.stringify({ query }),
   });
-  if (!res.ok) throw new Error(`Changi API HTTP ${res.status}`);
+  if (!res.ok) throw new ChangiError(`Changi API HTTP ${res.status}`);
   const body = await res.json();
-  if (body.errors && body.errors.length) {
-    throw new Error(`Changi API error: ${body.errors[0].message || "unknown"}`);
-  }
+  const errors = Array.isArray(body.errors) ? body.errors : [];
   const data = body.data && body.data.getFlights;
-  if (!data) throw new Error("Changi API: empty response");
+  if (!data || !Array.isArray(data.flights)) {
+    const msg = errors.length ? `Changi API error: ${errors[0].message || "unknown"}` : "Changi API: empty response";
+    throw new ChangiError(msg, errors);
+  }
+  if (errors.length) {
+    console.warn(`Changi API: using partial data, ${errors.length} field error(s), e.g. ${errors[0].message}`);
+  }
+  data.flights = data.flights.filter(Boolean); // a flight nulled by an error is skipped, not fatal
   return data;
 }
+
+const isAirportDetailError = (e) =>
+  e instanceof ChangiError && e.errors.some((x) => /AirportDetail|airport_details/.test(`${x.message} ${(x.path || []).join("/")}`));
 
 /**
  * All raw flights for one direction on one date.
@@ -98,7 +120,17 @@ async function fetchDirection(direction, date) {
       `page_size: ${gqlString(PAGE_SIZE)}`,
     ];
     if (token) args.push(`next_token: ${gqlString(token)}`);
-    const data = await gql(`query { getFlights(${args.join(", ")}) { next_token flights { ${FIELDS} } } }`);
+    const q = (fields) => `query { getFlights(${args.join(", ")}) { next_token flights { ${fields} } } }`;
+    let data;
+    try {
+      data = await gql(q(FIELDS));
+    } catch (e) {
+      // If a bad airport record ever voids the whole page, retry without
+      // airport details; cities then fall back to the airport code.
+      if (!isAirportDetailError(e)) throw e;
+      console.warn(`Changi API: retrying ${direction} ${date} page ${page + 1} without airport_details`);
+      data = await gql(q(FIELDS.replace(AIRPORT_FIELDS, "")));
+    }
     const batch = data.flights || [];
     flights.push(...batch);
     token = data.next_token;

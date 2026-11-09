@@ -173,18 +173,31 @@ async function handleBoard(request, env, ctx, url) {
     return json(body, { maxAge: TODAY_CACHE_S });
   }
 
-  // Other dates: fetch live, cache briefly, fall back to whatever KV has.
+  // Other dates: fetch live, cache briefly. If Changi fails, fall back to the
+  // KV copy or the last good live answer this isolate saw (memory only, no KV
+  // writes), flagged stale so the page says the data may be slightly old.
   try {
     const body = await cached(ctx, `board-live-${date}`, OTHER_DATE_CACHE_S, async () => {
       const { dep, arr } = await fetchBoard(date);
       return present({ date, updatedAt: Date.now(), dep, arr }, { source: "live" });
     });
+    rememberGood(date, body);
     return json(body, { maxAge: OTHER_DATE_CACHE_S });
   } catch (e) {
+    console.error(`board ${date} live fetch failed: ${e.message}`);
     const board = await env.BOARD_KV.get(boardKey(date), "json");
     if (board) return json(present(board, { source: "kv", error: e.message }), { maxAge: 60 });
+    const last = lastGoodBoards.get(date);
+    if (last) return json({ ...last, source: "memory", stale: true, error: e.message }, { maxAge: 60 });
     return json({ error: `Flight data unavailable: ${e.message}` }, { status: 502 });
   }
+}
+
+// Last good live board per non-today date, in this isolate's memory only.
+const lastGoodBoards = new Map();
+function rememberGood(date, body) {
+  lastGoodBoards.set(date, body);
+  if (lastGoodBoards.size > 10) lastGoodBoards.delete(lastGoodBoards.keys().next().value);
 }
 
 // ---------------------------------------------------------------- traffic

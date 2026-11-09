@@ -546,7 +546,7 @@ function renderUpdated(data) {
   el.title = `Flight data as of ${dataTime} SGT`;
   // One line: when the page last updated, then the most useful second fact.
   const tail = stale
-    ? `<span class="stale" title="${esc(data.error || state.error || "")}">data may be stale</span>`
+    ? `<span class="stale" title="${esc(data.error || state.error || "")}">data may be slightly old</span>`
     : old
       ? `data from ${esc(dataTime)}`
       : `auto-refreshes every ${AUTO_REFRESH_MS / 60e3} min`;

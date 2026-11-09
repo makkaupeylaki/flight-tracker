@@ -110,6 +110,53 @@ test("traffic: area and callsign lookups, fallback to airplanes.live, never KV",
   assert.equal(env.BOARD_KV.writes, 0, "traffic must never be written to KV");
 });
 
+test("one bad flight (null airport_details + GraphQL error) doesn't fail the board", async () => {
+  const env = { BOARD_KV: makeKV() };
+  const good = flight("SQ1", "1");
+  const bad = { ...flight("E97176", "1"), airport: "NLU", airport_details: null };
+  globalThis.fetch = async () => Response.json({
+    data: { getFlights: { next_token: null, flights: [good, bad, null] } },
+    errors: [{ message: "Cannot return null for non-nullable type: 'String' within parent 'AirportDetail' (/getFlights/flights[1]/airport_details/name)", path: ["getFlights", "flights", 1, "airport_details", "name"] }],
+  });
+  const { board } = await refreshBoard(env, today);
+  assert.deepEqual(board.dep.map((f) => f.fn).sort(), ["E97176", "SQ1"]);
+  assert.equal(board.dep.find((f) => f.fn === "E97176").city, "NLU", "city falls back to the airport code");
+});
+
+test("if a bad airport voids the whole page, retry without airport_details", async () => {
+  const env = { BOARD_KV: makeKV() };
+  const queries = [];
+  globalThis.fetch = async (url, init) => {
+    const q = JSON.parse(init.body).query;
+    queries.push(q);
+    if (q.includes("airport_details")) {
+      return Response.json({ data: { getFlights: null }, errors: [{ message: "Cannot return null for non-nullable type: 'String' within parent 'AirportDetail'" }] });
+    }
+    return Response.json({ data: { getFlights: { next_token: null, flights: [{ ...flight("SQ1", "1"), airport_details: undefined }] } } });
+  };
+  const { board } = await refreshBoard(env, today);
+  assert.equal(board.dep[0].city, "PVG");
+  assert.ok(queries.some((q) => !q.includes("airport_details")), "retried without airport_details");
+});
+
+test("other dates: Changi failure serves the last good board, flagged stale", async () => {
+  const env = { BOARD_KV: makeKV() };
+  const tmrw = addDays(today, 2); // a date no other test has cached
+  globalThis.fetch = async () => Response.json({ data: { getFlights: { next_token: null, flights: [flight("SQ7", "2", "Scheduled", tmrw)] } } });
+  const ok = await (await worker.fetch(new Request(`https://x/api/board?date=${tmrw}`), env, makeCtx())).json();
+  assert.equal(ok.stale, false);
+  // Expire the 5-minute cache, then make Changi fail.
+  const realNow = Date.now; Date.now = () => realNow() + 10 * 60e3;
+  try {
+    globalThis.fetch = async () => new Response("down", { status: 503 });
+    const res = await worker.fetch(new Request(`https://x/api/board?date=${tmrw}`), env, makeCtx());
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(body.stale, true);
+    assert.equal(body.dep[0].fn, "SQ7");
+  } finally { Date.now = realNow; }
+});
+
 test("addDays crosses month boundaries", () => {
   assert.equal(addDays("2026-11-30", 1), "2026-12-01");
   assert.equal(addDays("2026-01-01", -1), "2025-12-31");
