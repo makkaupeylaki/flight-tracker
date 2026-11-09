@@ -23,6 +23,7 @@
   --t2: #c4a2ff; /* violet */
   --t3: #ff8fbd; /* pink */
   --t4: #4fd8c8; /* teal */
+  --seletar: #7ee787; /* Seletar on the Tracker: green, apart from Changi's yellow */
 
   --radius: 10px;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
@@ -438,8 +439,60 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 7
 .c-emerg strong { color: var(--bad); font-size: 12px; letter-spacing: 0.04em; }
 .home-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(255, 210, 63, 0.2); }
 
+/* Tracker header: Changi / Seletar, centred over the top of the map. */
+.trk-head {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+.trk-head button { color: var(--text); }
+.trk-head button:hover { background: var(--surface-2); }
+.trk-head button[data-goto="changi"] { color: var(--accent); }
+.trk-head button[data-goto="seletar"] { color: var(--seletar); }
+
+/* Seletar airport mark: a dot in its own colour (Changi's is yellow), with a label. */
+.apt-mark { position: relative; width: 10px; height: 10px; }
+.apt-dot {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: var(--seletar); box-shadow: 0 0 0 4px rgba(126, 231, 135, 0.2);
+}
+.apt-label {
+  position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+  color: var(--seletar); font: 600 11px/1 var(--sans); white-space: nowrap;
+  text-shadow: 0 0 3px #000, 0 0 3px #000;
+}
+
+/* "Near Seletar" panel: bottom left; the plane card (z 800) sits above it on phones. */
+.near-panel {
+  position: absolute; left: 12px; bottom: calc(28px + env(safe-area-inset-bottom)); z-index: 700;
+  width: min(300px, calc(100% - 24px)); max-height: 46%; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45); font-size: 13px;
+}
+.near-panel summary {
+  cursor: pointer; padding: 8px 12px; font-weight: 600; color: var(--seletar);
+  list-style-position: inside;
+}
+.near-count { color: var(--muted); font-weight: 500; }
+.near-list ul { list-style: none; margin: 0; padding: 0 6px; }
+.near-list button {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; width: 100%;
+  padding: 6px; border: 0; border-top: 1px solid var(--line); background: transparent; text-align: left;
+}
+.near-list button:hover { background: var(--surface-2); }
+.near-cs { font-family: var(--mono); font-weight: 650; }
+.near-cs.c-unknown { font-family: var(--sans); color: var(--muted); font-weight: 500; }
+.near-id { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.near-num { text-align: right; }
+.near-tag {
+  padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  color: var(--bg); background: var(--seletar);
+}
+.near-type, .near-num { color: var(--muted); font-variant-numeric: tabular-nums; }
+.near-empty { margin: 0; padding: 4px 12px 8px; color: var(--muted); }
+.near-note { margin: 0; padding: 8px 12px 10px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11.5px; line-height: 1.45; }
+
 .map-note {
-  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 500;
+  position: absolute; top: 58px; left: 50%; transform: translateX(-50%); z-index: 500;
   background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
   padding: 5px 12px; font-size: 12px; color: var(--muted); white-space: nowrap;
 }

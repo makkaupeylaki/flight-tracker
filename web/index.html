@@ -81,6 +81,15 @@
 
     <section id="view-tracker" class="view" role="tabpanel" aria-labelledby="tab-tracker" hidden>
       <div id="map" class="map" aria-label="Map of aircraft near Changi"></div>
+      <div id="trk-head" class="seg trk-head" role="group" aria-label="Go to airport">
+        <button type="button" data-goto="changi" title="Zoom the map to Changi">Changi</button>
+        <button type="button" data-goto="seletar" title="Zoom the map to Seletar">Seletar</button>
+      </div>
+      <details id="seletar" class="near-panel">
+        <summary>Near Seletar <span id="seletar-count" class="near-count"></span></summary>
+        <div id="seletar-list" class="near-list"></div>
+        <p class="near-note">Seletar has no live departures board here. Aircraft shown are tracked by ADS-B, small or low flights may not appear.</p>
+      </details>
       <div id="map-loading" class="map-note map-loading" role="status" hidden><span class="dot-spin" aria-hidden="true"></span>Loading map…</div>
       <div id="map-note" class="map-note" hidden></div>
       <article id="card" class="card" aria-live="polite" aria-hidden="true">

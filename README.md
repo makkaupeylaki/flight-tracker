@@ -34,6 +34,9 @@ Pages (web/) ──► GET /api/board    ◄────────────
 Traffic is fetched live (adsb.lol first; on any error, including its 429 rate limit, airplanes.live) and cached
 only in Worker memory and via `Cache-Control: max-age=10`. It is never written to KV.
 
+The Tracker also marks Seletar (WSSL / XSP) and lists aircraft within 5 nm of it from the same traffic response;
+there's no separate route or departures board for Seletar.
+
 `sq` is the transponder (squawk) code as broadcast, or null. The page's Standby view flags 7500, 7600 and 7700
 only for airborne aircraft and only once the same code shows on two polls in a row; it's shown as a possible
 emergency, never a confirmed one. The feed's own `emergency` field is ignored.

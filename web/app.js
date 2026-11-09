@@ -18,6 +18,11 @@ const TRAFFIC_REFRESH_MS = 15e3; // tracker tab
 const MAP_MOVE_DEBOUNCE_MS = 800; // wait for the map to settle before fetching a new area
 const MAX_DIST_NM = 250; // ADS-B providers cap an area query at 250 nm
 const CHANGI_ZOOM = 10; // default view on load
+// Seletar (WSSL / XSP): Tracker only. Its aircraft come from the same traffic call as
+// everything else (the 25 nm area around Changi already reaches it).
+const SELETAR = [1.4168, 103.8678];
+const SELETAR_ZOOM = 13;
+const NEAR_SELETAR_NM = 5;
 const JUMP_ZOOM = 7; // zoom used when jumping to a plane found by callsign
 const TRAFFIC_MAX_AGE_MS = 3 * 60e3; // drop live marks if positions are older than this
 const EARLIER_GRACE_MIN = 60; // today: hide finished flights older than this
@@ -1100,6 +1105,16 @@ function initMap() {
     icon: L.divIcon({ className: "", html: '<div class="home-dot" title="Singapore Changi (SIN)"></div>', iconSize: [12, 12] }),
     interactive: false, keyboard: false,
   }).addTo(map);
+  L.marker(SELETAR, {
+    icon: L.divIcon({
+      className: "",
+      html: '<div class="apt-mark" title="Seletar Airport (WSSL / XSP)"><span class="apt-dot"></span><span class="apt-label">Seletar (XSP)</span></div>',
+      iconSize: [10, 10],
+    }),
+    interactive: false, keyboard: false,
+  }).addTo(map);
+  // "Near Seletar" starts open where there's room for it next to the plane card.
+  if (window.matchMedia("(min-width: 700px)").matches) $("#seletar").open = true;
   map.on("click", () => { if (tracker.selected || tracker.focus) select(null); });
   // Follow the map: when the user pans or zooms, fetch planes around the new
   // centre once the map has settled, and restart the 15 s poll from there.
@@ -1249,6 +1264,8 @@ async function loadTraffic({ fresh = false } = {}) {
     note.textContent = data.stale ? "Positions delayed" : "Showing 250 nm around the centre · zoom in for the rest";
     tracker.traffic = data.ac || [];
     tracker.trafficAt = data.at || Date.now();
+    tracker.trafficArea = data.area || null;
+    renderSeletar();
     updateStandby(tracker.traffic, tracker.trafficAt);
     if (state.view === "tracker") applyTraffic(tracker.traffic);
     else if (state.term === "standby") renderBoard();
@@ -1435,10 +1452,57 @@ function schedulePoll() {
   tracker.timer = setInterval(() => loadTraffic(), TRAFFIC_REFRESH_MS);
 }
 
+/** "Near Seletar": aircraft in the latest traffic within NEAR_SELETAR_NM of Seletar. */
+function renderSeletar() {
+  const box = $("#seletar-list");
+  if (!box) return;
+  const area = tracker.trafficArea;
+  // The Tracker fetches the area the map shows; Seletar may be outside it after a long pan.
+  const covered = !area || haversineKm([area.lat, area.lon], SELETAR) / 1.852 + NEAR_SELETAR_NM <= area.dist;
+  const near = covered
+    ? tracker.traffic
+      .map((ac) => ({ ac, nm: haversineKm(SELETAR, [ac.lat, ac.lon]) / 1.852 }))
+      .filter((x) => x.nm <= NEAR_SELETAR_NM)
+      .sort((a, b) => a.nm - b.nm)
+    : [];
+  $("#seletar-count").textContent = covered && tracker.trafficAt ? `· ${near.length}` : "";
+  if (!covered) {
+    box.innerHTML = `<p class="near-empty">Seletar is outside the area the map is showing. Tap Seletar above to see it.</p>`;
+    return;
+  }
+  if (!near.length) {
+    box.innerHTML = `<p class="near-empty">${tracker.trafficAt ? "No aircraft with ADS-B near Seletar right now." : "Loading aircraft…"}</p>`;
+    return;
+  }
+  box.innerHTML = `<ul>${near.map(({ ac }) => {
+    const alt = ac.gnd ? "Ground" : ac.alt != null ? `${Math.round(ac.alt).toLocaleString("en-US")} ft` : "—";
+    const spd = ac.gs != null ? `${Math.round(ac.gs)} kt` : "—";
+    const firefly = /^FFM/.test(ac.cs || "") ? `<span class="near-tag">Firefly</span>` : "";
+    return `<li><button type="button" data-near-hex="${esc(ac.hex)}">
+      <span class="near-id"><span class="near-cs${ac.cs ? "" : " c-unknown"}">${esc(ac.cs || "Unknown")}</span>${firefly}</span>
+      <span class="near-num">${esc(alt)}</span>
+      <span class="near-type">${esc(ac.t || "Unknown type")}</span>
+      <span class="near-num">${esc(spd)}</span>
+    </button></li>`;
+  }).join("")}</ul>`;
+}
+
+/** Tracker header buttons: zoom to Seletar or back to Changi (Reset stays as it was). */
+function goToAirport(where) {
+  if (!tracker.map) return;
+  if (where === "seletar") {
+    tracker.map.setView(SELETAR, SELETAR_ZOOM);
+    if (window.matchMedia("(min-width: 700px)").matches) $("#seletar").open = true; // phones: tap to open
+  } else {
+    tracker.map.setView(CHANGI, CHANGI_ZOOM);
+  }
+}
+
 function startTracker() {
   initMap();
   if (!tracker.map) { setTimeout(startTracker, 200); return; } // Leaflet still loading
   tracker.map.invalidateSize();
+  renderSeletar();
   if (!state.boards.has(sgtDate(0))) loadBoard(sgtDate(0), { quiet: true });
   loadTraffic();
   schedulePoll();
@@ -1587,6 +1651,14 @@ function init() {
   bindBoard();
   $$(".tab").forEach((t) => t.addEventListener("click", () => show(t.dataset.view)));
   $(".card-close").addEventListener("click", () => select(null));
+  $("#trk-head").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-goto]");
+    if (b) goToAirport(b.dataset.goto);
+  });
+  $("#seletar-list").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-near-hex]");
+    if (b && tracker.markers.has(b.dataset.nearHex)) select(b.dataset.nearHex);
+  });
   setCardOpen(false); // closed card: hidden and out of the Tab order from the start
   $("#card-body").addEventListener("click", (e) => {
     if (e.target.closest("[data-board]") && tracker.cardFlight) viewOnBoard(tracker.cardFlight);
