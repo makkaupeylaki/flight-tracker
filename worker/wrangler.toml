@@ -17,4 +17,4 @@ id = "ad70d054f310498c8dd03c492a40548b"
 [vars]
 # Comma-separated list of origins allowed to call the API ("*" = any).
 # Lock this to your Pages URL once deployed, e.g. "https://changi-board.pages.dev".
-ALLOWED_ORIGINS = "https://flightlah.pages.dev"
+ALLOWED_ORIGINS = "https://flightlah.pages.dev,https://flightlah.com,https://www.flightlah.com"
