@@ -305,6 +305,7 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
 .f-sub ~ .f-note { grid-row: 3; margin-top: 1px; }
 .kv-seats, .kv-wide { grid-column: 1 / -1; }
 .kv dd.delay-detail { color: var(--warn); }
+.kv dd.delay-detail.early { color: var(--muted); } /* same colours as the row tags */
 .kv dd .seat-note { display: block; margin-top: 2px; max-width: 48ch; line-height: 1.4; }
 .kv dd .gate-was { display: block; margin-top: 2px; color: var(--warn); font-family: var(--sans); font-size: 12px; }
 
