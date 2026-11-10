@@ -10,16 +10,19 @@
 //
 // Bump VERSION when the list of app files changes; old caches are removed on activate.
 //
-// Stylesheet release token: whenever style.css changes, change the ?v= token in
-// THREE places so browsers and this cache can't serve an old copy:
-//   index.html and about.html (<link rel="stylesheet" href="/style.css?v=...">)
-//   and SHELL_FILES below (the cache key must match the URL the pages request).
+// Release tokens: whenever style.css or app.js changes, change its ?v= token so
+// browsers, the edge and this cache can't serve an old copy (the token is the first
+// 7 hex digits of the file's sha256):
+//   style.css: index.html and about.html (<link rel="stylesheet" href="/style.css?v=...">)
+//              and SHELL_FILES below
+//   app.js:    index.html (<script src="/app.js?v=...">) and SHELL_FILES below
+// The cache key in SHELL_FILES must match the URL the pages request.
 
 const VERSION = "v2";
 const SHELL = `flightlah-shell-${VERSION}`;
 const DATA = `flightlah-data-${VERSION}`;
 const SHELL_FILES = [
-  "./", "index.html", "app.js", "/style.css?v=93684be", "config.js", "manifest.webmanifest",
+  "./", "index.html", "/app.js?v=e6a778d", "/style.css?v=d17e8f8", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png",
 ];
 // Extra pages, cached best-effort so a missing one never blocks the install.

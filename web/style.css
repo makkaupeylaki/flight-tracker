@@ -196,7 +196,7 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
 .f-row {
   width: 100%; border: 0; background: transparent; text-align: left;
   display: grid; align-items: center; column-gap: 10px;
-  grid-template-columns: 3.1em auto minmax(0, 1fr) 4.4em 7.8em; /* fixed terminal + status columns */
+  grid-template-columns: 3.1em auto minmax(0, 1fr) 4.4em 8.2em; /* fixed terminal + status columns */
   padding: 12px 16px; min-height: 48px;
 }
 .f-row:hover { background: var(--surface); }
@@ -332,7 +332,7 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
 /* Status pill sizes to its text (never truncated); the city column gives way instead. */
 .pill {
   justify-self: end;
-  padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 550;
+  padding: 2px 7px; border-radius: 999px; font-size: 12px; font-weight: 550;
   white-space: nowrap;
   color: var(--ok); background: var(--ok-bg);
 }
@@ -355,10 +355,12 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
 .kv dd small { color: var(--muted); font-family: var(--sans); font-size: 12px; }
 
 @media (max-width: 460px) {
-  .f-row { grid-template-columns: 3em auto minmax(0, 1fr) 2.3em 6.4em; column-gap: 8px; } /* 6.4em fits the widest badge ("Gate info 04:40") */
+  /* 7.2em (108px) fits the widest badge, "Gate info 15:05", even in wide fallback fonts
+     (DejaVu Sans: 106px with 5px padding); the city column gives way instead. */
+  .f-row { grid-template-columns: 3em auto minmax(0, 1fr) 2.3em 7.2em; column-gap: 8px; }
   .f-where { flex-direction: column; align-items: center; gap: 1px; line-height: 1.15; }
   .f-gate { font-size: 11px; }
-  .pill { font-size: 11px; padding: 2px 6px; }
+  .pill { font-size: 11px; padding: 2px 5px; }
   .f-detail, .f-actions { padding-left: 16px; }
   .chips { gap: 5px; }
   .chips button { padding: 4px 10px; }
@@ -371,7 +373,7 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
    Phones (portrait and landscape) keep the layout above. */
 @media (min-width: 461px) and (min-height: 501px), (min-width: 461px) and (orientation: portrait) {
   .f-row {
-    grid-template-columns: 3.1em 5.4em minmax(0, 1fr) 3em 7.8em;
+    grid-template-columns: 3.1em 5.4em minmax(0, 1fr) 3em 8.2em; /* 8.2em fits "Gate info 15:05" in DejaVu Sans */
     align-items: start; align-content: start; min-height: 66px;
   }
   .f-row > span { line-height: 21px; }
