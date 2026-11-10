@@ -3,7 +3,8 @@
 //   App files (page, script, styles, icons, Leaflet): network first, so a deploy shows
 //     up on the next load; the cached copy is used only when the network fails.
 //   GET .../api/board:  network first; the last good answer per URL is kept, and served
-//     offline with `offline: true` and `offlineAt` added so the page can say so.
+//     (with `offline: true` and `offlineAt`) when the network fails or is slower than
+//     NETWORK_TIMEOUT_MS. A slow answer still lands later and the page is told.
 //   Everything else (aircraft positions, map tiles, other sites): straight to the
 //     network, never cached. Positions are useless when old; tiles are OSM's.
 //
@@ -55,11 +56,17 @@ async function shell(req) {
 }
 
 /** Board data: network first; offline, the last good answer marked `offline`. */
-async function board(req) {
+/**
+ * Board data: network first. If the network fails, or hasn't answered within
+ * NETWORK_TIMEOUT_MS, the last good copy is served (marked `offline`). A slow
+ * request is NOT cancelled: when it does arrive it's saved, and open pages get a
+ * "board-fresh" message so they can swap the fresh board in.
+ */
+async function board(e) {
+  const req = e.request;
   const cache = await caches.open(DATA);
   const key = req.url; // cache by URL only (no headers), so any copy of this board matches
-  try {
-    const res = await fetchWithTimeout(req);
+  const network = fetch(req).then(async (res) => {
     if (res.ok) {
       const body = await res.clone().json();
       await cache.put(key, new Response(JSON.stringify({ ...body, savedAt: Date.now() }), {
@@ -67,21 +74,38 @@ async function board(req) {
       }));
     }
     return res;
-  } catch (err) {
-    const hit = await cache.match(key);
-    if (!hit) throw err;
-    const body = await hit.json();
-    return new Response(JSON.stringify({ ...body, offline: true, offlineAt: body.savedAt || null }), {
-      headers: { "Content-Type": "application/json" },
-    });
+  });
+  let timer;
+  const slow = new Promise((resolve) => { timer = setTimeout(() => resolve("slow"), NETWORK_TIMEOUT_MS); });
+  try {
+    const first = await Promise.race([network, slow]);
+    if (first !== "slow") return first; // answered in time
+  } catch {
+    // Failed outright (no connection): use the saved copy below.
+  } finally {
+    clearTimeout(timer);
   }
+  const hit = await cache.match(key);
+  if (!hit) return network; // nothing saved yet: keep waiting for the network (or its error)
+  const body = await hit.json();
+  e.waitUntil(network.then(async (res) => {
+    if (!res.ok) return;
+    // Send the fresh board itself (just saved above), so the page needn't fetch it again.
+    const fresh = await (await cache.match(key)).json();
+    for (const client of await self.clients.matchAll({ type: "window" })) {
+      client.postMessage({ type: "board-fresh", url: key, body: fresh });
+    }
+  }).catch(() => { /* still offline: nothing to tell */ }));
+  return new Response(JSON.stringify({ ...body, offline: true, offlineAt: body.savedAt || null }), {
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  if (url.pathname.endsWith("/api/board")) { e.respondWith(board(req)); return; }
+  if (url.pathname.endsWith("/api/board")) { e.respondWith(board(e)); return; }
   if (url.pathname.includes("/api/")) return; // traffic: live only
   if (url.origin === self.location.origin || LEAFLET.test(req.url)) { e.respondWith(shell(req)); return; }
   // Map tiles and anything else: not handled here.

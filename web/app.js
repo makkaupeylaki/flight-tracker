@@ -625,8 +625,12 @@ function renderUpdated(data) {
   if (data.offline) {
     // Served by the service worker from its last good copy (no network).
     const at = data.offlineAt ? fmtSGT.format(new Date(data.offlineAt)) : null;
-    el.title = "No connection: this is the last board flightlah saved on this device";
-    el.innerHTML = `<span class="stale">Offline</span> · showing data from ${esc(at || "earlier")}`;
+    // The phone says it's offline -> "Offline"; otherwise the network was just too slow.
+    const offline = navigator.onLine === false;
+    el.title = offline
+      ? "No connection: this is the last board flightlah saved on this device"
+      : "The connection is slow: this is the last saved board, and it updates as soon as the new one arrives";
+    el.innerHTML = `<span class="stale">${offline ? "Offline" : "Slow connection"}</span> · showing data from ${esc(at || "earlier")}`;
     return;
   }
   const err = state.errors.get(boardIdOf(data));
@@ -1840,6 +1844,21 @@ function init() {
   // Installable app + offline fallback (see sw.js). Back online: refresh straight away.
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     navigator.serviceWorker.register("sw.js").catch((e) => console.warn("service worker:", e));
+    // A board that was too slow (so the saved copy was shown) has now arrived: show it.
+    navigator.serviceWorker.addEventListener("message", (e) => {
+      const m = e.data;
+      if (!m || m.type !== "board-fresh" || !m.body || !m.body.date) return;
+      const id = boardIdOf(m.body);
+      const shown = state.boards.get(id);
+      if (shown && !shown.offline && shown.updatedAt > m.body.updatedAt) return; // already have newer
+      state.boards.set(id, m.body);
+      state.fetchedAt.set(id, Date.now());
+      state.errors.delete(id);
+      const y = window.scrollY;
+      renderBoard();
+      if (window.scrollY !== y) window.scrollTo(0, y);
+      if (m.body.date === sgtDate(0)) onTodayBoard();
+    });
   }
   window.addEventListener("online", () => refreshNow({ manual: false }));
 }
