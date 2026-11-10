@@ -1,13 +1,16 @@
 {
   "name": "flightlah",
   "short_name": "flightlah",
-  "description": "Live departures, arrivals and aircraft around Singapore Changi Airport, terminals 1–4.",
+  "description": "Live departures, arrivals and aircraft at Singapore Changi (T1–T4) and Seletar.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0b0c0e",
   "theme_color": "#0b0c0e",
   "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     {
       "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c0e'/%3E%3Cpath fill='%23ffd23f' d='M16 4c1 0 1.6 1 1.6 2.4V13l9.4 5.4v2.4l-9.4-2.9v5.6l2.6 2v1.9L16 26.2l-4.2 1.2v-1.9l2.6-2v-5.6L5 20.8v-2.4l9.4-5.4V6.4C14.4 5 15 4 16 4z'/%3E%3C/svg%3E",
       "sizes": "any",

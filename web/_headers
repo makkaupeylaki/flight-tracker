@@ -8,3 +8,11 @@
 
 /*.css
   Cache-Control: public, max-age=300
+
+# The service worker must always be re-checked, so app updates reach installed copies.
+/sw.js
+  ! Cache-Control
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json

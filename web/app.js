@@ -38,6 +38,7 @@ const ICAO_TO_IATA = {
   FDX: "FX", UPS: "5X", CLX: "CV", ETH: "ET", SVA: "SV", TTW: "IT", HKE: "UO", CRK: "HX",
   XAX: "D7", RBA: "BI", MMA: "8M", AMU: "NX", DKH: "HO", CQH: "9C", APJ: "MM", PIA: "PK",
   KQA: "KQ", ACA: "AC", AUA: "OS", SAS: "SK",
+  FFM: "FY", // Firefly (Seletar)
 };
 
 // IATA codes whose callsign prefix is in the map above (used to rule out false matches).
@@ -283,7 +284,7 @@ async function loadBoard(date, { quiet = false, fresh = false, airport = "sin" }
   const y = window.scrollY;
   renderBoard();
   if (quiet && window.scrollY !== y) window.scrollTo(0, y);
-  if (date === today && airport === "sin") onTodayBoard();
+  if (date === today) onTodayBoard();
   if (state.pendingShare && date === currentDate() && airport === state.airport) resolveShareLink();
 }
 
@@ -498,6 +499,7 @@ function xspDetailHTML(f, dir) {
     ${kv("Status", esc(f.status) || "No update yet")}
   </dl>
   <div class="f-actions">
+    ${state.day === 0 ? `<button class="track-btn" type="button" data-track="${esc(flightKey(f))}">${trackLabel(isLive(f, dir))}</button>` : ""}
     <button class="save-btn${saved ? " saved" : ""}" type="button" data-fav aria-pressed="${saved}">${STAR_SVG(saved)}${saved ? "Saved" : "Save flight"}</button>
     <button class="save-btn share-btn" type="button" data-share>${SHARE_SVG}Share</button>
   </div>`;
@@ -620,6 +622,13 @@ function updateLiveMarks() {
 function renderUpdated(data) {
   const el = $("#updated");
   if (!data) { el.textContent = ""; return; }
+  if (data.offline) {
+    // Served by the service worker from its last good copy (no network).
+    const at = data.offlineAt ? fmtSGT.format(new Date(data.offlineAt)) : null;
+    el.title = "No connection: this is the last board flightlah saved on this device";
+    el.innerHTML = `<span class="stale">Offline</span> · showing data from ${esc(at || "earlier")}`;
+    return;
+  }
   const err = state.errors.get(boardIdOf(data));
   const fetched = state.fetchedAt.get(boardIdOf(data)) || data.updatedAt;
   const t = fmtSGT.format(new Date(fetched));
@@ -682,9 +691,13 @@ function renderBoard() {
   if (state.term === "standby") { renderStandby(box); return; }
 
   if (!data) {
+    // No network (fetch itself failed) and nothing saved on this device for this day.
+    const noNet = navigator.onLine === false || /failed to fetch|networkerror|load failed/i.test(error || "");
     box.innerHTML = state.loading
       ? `<p class="empty">Loading flights…</p>`
-      : `<p class="empty error">Couldn't load ${state.airport === "xsp" ? "Seletar " : ""}flights${error ? `: ${esc(error)}` : ""}.</p>`;
+      : noNet
+        ? `<p class="empty error">No connection, and this day isn't saved on this device yet. It will load when you're back online.</p>`
+        : `<p class="empty error">Couldn't load ${state.airport === "xsp" ? "Seletar " : ""}flights${error ? `: ${esc(error)}` : ""}.</p>`;
     return;
   }
 
@@ -1033,11 +1046,12 @@ function renderStandbyChip() {
 
 const PLANE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.8 0 1.3.8 1.3 1.9V9l7.7 4.4v1.9l-7.7-2.4v4.6l2.1 1.6V21L12 20.1 8.6 21v-1.9l2.1-1.6v-4.6L3 15.3v-1.9L10.7 9V3.9C10.7 2.8 11.2 2 12 2z"/></svg>`;
 
+/** Rebuild the Tracker's callsign index from today's Changi and Seletar boards (whichever are loaded). */
 function onTodayBoard() {
-  const data = state.boards.get(sgtDate(0));
-  if (!data) return;
+  const boards = [state.boards.get(sgtDate(0)), state.boards.get(boardId(sgtDate(0), "xsp"))].filter(Boolean);
+  if (!boards.length) return;
   const byExact = new Map(), byNum = new Map();
-  for (const dir of ["dep", "arr"]) {
+  for (const data of boards) for (const dir of ["dep", "arr"]) {
     for (const f of data[dir] || []) {
       if (!f.fn || !f.al) continue;
       const num = f.fn.slice(f.al.length).replace(/^0+/, "").replace(/[A-Z]$/, "");
@@ -1091,9 +1105,14 @@ function matchFlight(cs) {
 
 const sameFlight = (a, b) => Boolean(a && b && a.dir === b.dir && a.fn === b.fn && a.st === b.st);
 
+/** A flight on today's Changi or Seletar board, by direction and row key. */
 function findTodayFlight(dir, key) {
-  const data = state.boards.get(sgtDate(0));
-  return ((data && data[dir]) || []).find((f) => flightKey(f) === key) || null;
+  for (const id of [sgtDate(0), boardId(sgtDate(0), "xsp")]) {
+    const data = state.boards.get(id);
+    const f = ((data && data[dir]) || []).find((x) => flightKey(x) === key);
+    if (f) return f;
+  }
+  return null;
 }
 
 /** Board -> tracker: open the map on this flight's plane, or explain why it isn't there. */
@@ -1158,7 +1177,8 @@ function resolveFocus() {
 /** Tracker -> board: show the flight's row, expanded, on today's board. */
 function viewOnBoard(f) {
   const key = flightKey(f);
-  if (state.airport !== "sin") { state.airport = "sin"; store.set("airport", "sin"); applyAirportUI(); }
+  const airport = isXsp(f) ? "xsp" : "sin";
+  if (state.airport !== airport) { state.airport = airport; store.set("airport", airport); applyAirportUI(); }
   state.dir = f.dir; store.set("dir", state.dir);
   state.day = 0;
   state.q = ""; $("#search").value = "";
@@ -1374,7 +1394,7 @@ async function loadTraffic({ fresh = false } = {}) {
   } catch (e) {
     if (e.name === "AbortError" || seq !== trafficSeq) return;
     note.hidden = false;
-    note.textContent = "Live positions unavailable";
+    note.textContent = navigator.onLine === false ? "Offline: live positions unavailable" : "Live positions unavailable";
     if (tracker.focus) { tracker.focus.checked = true; tracker.focus.failed = true; renderCard(); }
   }
   computeLive();
@@ -1446,8 +1466,9 @@ function select(hex) {
 }
 
 function routeHTML(f) {
-  const from = f.dir === "dep" ? "Singapore" : f.city || f.ap;
-  const to = f.dir === "dep" ? f.city || f.ap : "Singapore";
+  const home = isXsp(f) ? "Seletar" : "Singapore";
+  const from = f.dir === "dep" ? home : f.city || f.ap;
+  const to = f.dir === "dep" ? f.city || f.ap : home;
   const time = f.dir === "dep" ? "Departs" : "Arrives";
   return `<p class="c-route">${esc(from)} → ${esc(to)}</p>
     <p class="c-route"><small>${esc(f.fn)} · ${esc(f.an || f.al)} · ${time} ${esc(f.et || f.st)} · ${esc(statusLabel(f))}</small></p>`;
@@ -1460,7 +1481,7 @@ function notLiveMessage(f) {
   if (f.failed) return `Live positions are unavailable right now, so ${fn} can't be shown. Try again in a minute.`;
   const s = `${f.raw} ${f.status}`.toLowerCase();
   if (/cancel/.test(s)) return `${fn} is cancelled.`;
-  if (f.lookup === "pending") return `Looking for ${fn} beyond Changi…`;
+  if (f.lookup === "pending") return `Looking for ${fn} beyond ${isXsp(f) ? "Seletar" : "Changi"}…`;
   if (f.lookup === "failed") return `Live positions are unavailable right now, so ${fn} can't be found. Try again in a minute.`;
   if (f.lookup === "nocs") {
     return `<span class="c-tag">Out of coverage</span> ${fn} can't be looked up: flightlah doesn't know this airline's radio callsign yet.`;
@@ -1473,9 +1494,9 @@ function notLiveMessage(f) {
     return `<span class="c-tag">Out of coverage</span> ${fn} has no signal yet. That's common before it's within range of a community ADS-B receiver. It's due to land at ${esc(f.et || f.st)}.`;
   }
   if (f.dir === "dep") {
-    return `${fn} isn't airborne yet. It's due to depart at ${esc(f.et || f.st)}${f.gate ? ` from gate ${esc(f.gate)}` : ""}. It will appear here once it's airborne.`;
+    return `${fn} isn't airborne yet. It's due to depart at ${esc(f.et || f.st)}${(f.gate || f.door) ? ` from ${isXsp(f) ? esc(f.door) : `gate ${esc(f.gate)}`}` : ""}. It will appear here once it's airborne.`;
   }
-  return `${fn} isn't within range of Changi yet. It's due to land at ${esc(f.et || f.st)} and will appear here once it's close.`;
+  return `${fn} isn't within range of ${isXsp(f) ? "Seletar" : "Changi"} yet. It's due to land at ${esc(f.et || f.st)} and will appear here once it's close.`;
 }
 
 /**
@@ -1524,7 +1545,8 @@ function renderCard() {
   }
   const { ac } = entry;
   const f = matchFlight(ac.cs) || (tracker.pinned && tracker.pinned.hex === ac.hex ? tracker.pinned.flight : null);
-  const km = haversineKm(CHANGI, [ac.lat, ac.lon]);
+  const fromXsp = isXsp(f); // a Seletar flight: distance from Seletar, not Changi
+  const km = haversineKm(fromXsp ? SELETAR : CHANGI, [ac.lat, ac.lon]);
   const alt = ac.gnd ? "Ground" : ac.alt != null ? `${Math.round(ac.alt).toLocaleString("en-US")} ft` : "—";
   const spd = ac.gs != null ? `${Math.round(ac.gs)} kt` : "—";
 
@@ -1540,7 +1562,7 @@ function renderCard() {
     <dl class="c-stats">
       <div class="kv"><dt>Altitude</dt><dd>${esc(alt)}</dd></div>
       <div class="kv"><dt>Speed</dt><dd>${esc(spd)}</dd></div>
-      <div class="kv"><dt>From SIN</dt><dd>${km.toFixed(1)} km</dd></div>
+      <div class="kv"><dt>From ${fromXsp ? "XSP" : "SIN"}</dt><dd>${km.toFixed(1)} km</dd></div>
     </dl>
     ${entry.lost ? `<p class="c-lost">Signal lost — last known position.</p>` : ""}
     ${f ? boardLink : ""}`;
@@ -1579,10 +1601,12 @@ function renderSeletar() {
     const alt = ac.gnd ? "Ground" : ac.alt != null ? `${Math.round(ac.alt).toLocaleString("en-US")} ft` : "—";
     const spd = ac.gs != null ? `${Math.round(ac.gs)} kt` : "—";
     const firefly = /^FFM/.test(ac.cs || "") ? `<span class="near-tag">Firefly</span>` : "";
+    const f = matchFlight(ac.cs);
+    const flight = f ? ` · ${esc(f.fn)} ${f.dir === "dep" ? "to" : "from"} ${esc(f.city || f.ap)}` : "";
     return `<li><button type="button" data-near-hex="${esc(ac.hex)}">
       <span class="near-id"><span class="near-cs${ac.cs ? "" : " c-unknown"}">${esc(ac.cs || "Unknown")}</span>${firefly}</span>
       <span class="near-num">${esc(alt)}</span>
-      <span class="near-type">${esc(ac.t || "Unknown type")}</span>
+      <span class="near-type">${esc(ac.t || "Unknown type")}${flight}</span>
       <span class="near-num">${esc(spd)}</span>
     </button></li>`;
   }).join("")}</ul>`;
@@ -1605,6 +1629,7 @@ function startTracker() {
   tracker.map.invalidateSize();
   renderSeletar();
   if (!state.boards.has(sgtDate(0))) loadBoard(sgtDate(0), { quiet: true });
+  if (!state.boards.has(boardId(sgtDate(0), "xsp"))) loadBoard(sgtDate(0), { quiet: true, airport: "xsp" });
   loadTraffic();
   schedulePoll();
 }
@@ -1811,6 +1836,12 @@ function init() {
   });
 
   show(state.view);
+
+  // Installable app + offline fallback (see sw.js). Back online: refresh straight away.
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    navigator.serviceWorker.register("sw.js").catch((e) => console.warn("service worker:", e));
+  }
+  window.addEventListener("online", () => refreshNow({ manual: false }));
 }
 
 document.addEventListener("DOMContentLoaded", init);

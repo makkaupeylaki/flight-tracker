@@ -20,6 +20,8 @@ Pages (web/) ──► GET /api/board[?airport=xsp]  ◄────────
 | `worker/test/` | `npm test` — offline unit tests with a mocked upstream and in-memory KV. |
 | `web/` | Static frontend (vanilla JS, Leaflet from cdnjs, OSM tiles). No build step. |
 | `web/config.js` | The Worker URL the frontend calls. |
+| `web/sw.js` | Service worker: installable app + offline fallback. App files are network-first (a deploy shows on the next load); the last good `/api/board` answer per URL is kept and served offline marked `offline: true`; aircraft positions and map tiles are never cached. Bump `VERSION` if the list of app files changes. |
+| `web/icons/` | App icons (192/512, maskable 512, Apple touch 180) used by `manifest.webmanifest`. |
 
 ## API
 
