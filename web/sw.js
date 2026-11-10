@@ -9,12 +9,17 @@
 //     network, never cached. Positions are useless when old; tiles are OSM's.
 //
 // Bump VERSION when the list of app files changes; old caches are removed on activate.
+//
+// Stylesheet release token: whenever style.css changes, change the ?v= token in
+// THREE places so browsers and this cache can't serve an old copy:
+//   index.html and about.html (<link rel="stylesheet" href="/style.css?v=...">)
+//   and SHELL_FILES below (the cache key must match the URL the pages request).
 
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL = `flightlah-shell-${VERSION}`;
 const DATA = `flightlah-data-${VERSION}`;
 const SHELL_FILES = [
-  "./", "index.html", "app.js", "style.css", "config.js", "manifest.webmanifest",
+  "./", "index.html", "app.js", "/style.css?v=ab63df3", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png",
 ];
 // Extra pages, cached best-effort so a missing one never blocks the install.
