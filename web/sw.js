@@ -17,11 +17,16 @@ const SHELL_FILES = [
   "./", "index.html", "app.js", "style.css", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png",
 ];
+// Extra pages, cached best-effort so a missing one never blocks the install.
+// "about" is the /about URL Pages serves for about.html.
+const EXTRA_PAGES = ["about"];
 const LEAFLET = /^https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/leaflet\/1\.9\.4\//;
 const NETWORK_TIMEOUT_MS = 6000; // a stalled airport Wi-Fi counts as offline after this
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(SHELL)
+    .then((c) => c.addAll(SHELL_FILES).then(() => Promise.all(EXTRA_PAGES.map((p) => c.add(p).catch(() => {})))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {

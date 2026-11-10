@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>About &amp; FAQ · flightlah</title>
+  <meta name="description" content="About flightlah: a free, ad-free Changi and Seletar flight board and live plane tracker. FAQ on data, freshness and feedback.">
+  <meta name="theme-color" content="#0b0c0e">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c0e'/%3E%3Cpath fill='%23ffd23f' d='M16 4c1 0 1.6 1 1.6 2.4V13l9.4 5.4v2.4l-9.4-2.9v5.6l2.6 2v1.9L16 26.2l-4.2 1.2v-1.9l2.6-2v-5.6L5 20.8v-2.4l9.4-5.4V6.4C14.4 5 15 4 16 4z'/%3E%3C/svg%3E">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="canonical" href="https://flightlah.com/about">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="about-page">
+  <header class="top">
+    <div class="brand">
+      <span class="brand-name">flightlah</span>
+      <span class="brand-sub">SIN · T1–T4</span>
+    </div>
+    <a class="back-link" href="/">← Back to board</a>
+  </header>
+
+  <main class="about">
+    <section aria-labelledby="about-title">
+      <p class="about-label">About</p>
+      <h1 id="about-title" class="about-title">flightlah</h1>
+      <p class="about-text">flightlah is a free, ad-free Changi and Seletar flight board and live plane tracker. A hobby project built in Singapore.</p>
+    </section>
+
+    <section aria-labelledby="faq-title">
+      <h2 id="faq-title" class="about-label">FAQ</h2>
+      <dl class="faq">
+        <div class="faq-item">
+          <dt>Is this official?</dt>
+          <dd>No. Not affiliated with Changi Airport Group or any airline.</dd>
+        </div>
+        <div class="faq-item">
+          <dt>Where's the data from?</dt>
+          <dd>Public flight info and open ADS-B feeds for live plane positions.</dd>
+        </div>
+        <div class="faq-item">
+          <dt>How fresh is it?</dt>
+          <dd>The board updates about every 10 min and the map about every 15 sec. You can also refresh manually. Always check with your airline before heading out.</dd>
+        </div>
+        <div class="faq-item">
+          <dt>Is it free?</dt>
+          <dd>Yes. No ads, no sign-up.</dd>
+        </div>
+        <div class="faq-item">
+          <dt>Found a bug or have feedback?</dt>
+          <dd><a class="about-mail" href="mailto:hello@flightlah.com">hello@flightlah.com</a></dd>
+        </div>
+      </dl>
+    </section>
+  </main>
+
+  <p class="credit">LUQ TECH.</p>
+
+  <script>
+    // Same service worker as the app, so this page also opens offline.
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  </script>
+</body>
+</html>
