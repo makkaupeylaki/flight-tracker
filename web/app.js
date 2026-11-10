@@ -144,8 +144,21 @@ function delayTagHTML(f, dir) {
   }
   const basis = f.ats ? "actual" : "estimated";
   return m > 0
-    ? `<span class="delay-tag late" title="${basis} time is ${m} min later than scheduled">Delayed +${m}m</span>`
+    ? `<span class="delay-tag late" title="${basis} time is ${m} min later than scheduled">Delayed</span>` // minutes: in the detail
     : `<span class="delay-tag early" title="${basis} time is ${-m} min earlier than scheduled">Early -${-m}m</span>`;
+}
+
+/**
+ * Expanded detail line for a delayed flight (same 15-min rule as the row's "Delayed" tag):
+ * "Delayed 125 min, new time 14:50 vs scheduled 12:45". Empty when not delayed.
+ */
+function delayDetailHTML(f) {
+  const m = delayMinutes(f);
+  if (m === null || m < DELAY_TAG_MIN) return "";
+  const ts = (f.ats || f.ets).trim();
+  const d = ts.slice(0, 10);
+  const day = d && d !== f.d ? ` <small>${esc(fmtDay.format(new Date(d + "T00:00:00Z")))}</small>` : "";
+  return `<div class="kv kv-wide"><dt>Delay</dt><dd class="delay-detail">Delayed ${m} min, new time ${esc(ts.slice(11, 16))}${day} vs scheduled ${esc(f.st)}</dd></div>`;
 }
 
 /** The time a row shows (estimated when Changi has one, else scheduled) and its sort key. */
@@ -496,6 +509,7 @@ function xspDetailHTML(f, dir) {
     ${dep ? kv("Door", esc(f.door) || "—") : kv("Belt", esc(f.belt) || "—")}
     ${kv("Scheduled", esc(f.st))}
     ${kv(dep ? "Departure (latest)" : "Arrival (latest)", updated)}
+    ${delayDetailHTML(f)}
     ${kv("Status", esc(f.status) || "No update yet")}
   </dl>
   <div class="f-actions">
@@ -527,6 +541,7 @@ function detailHTML(f, dir = state.dir) {
     ${kv("Scheduled", time(f.st, `${f.d} ${f.st}`))}
     ${kv("Estimated", time(f.et, f.ets) || "—")}
     ${kv("Actual", time(f.at, f.ats) || "—")}
+    ${delayDetailHTML(f)}
     ${kv("Aircraft", esc(f.ac) || "—")}
     ${kv("Terminal", f.t ? `<span class="${termClass(f.t)}">T${esc(f.t)}</span>` : "Not assigned yet")}
     ${seatEstimate(f) ? `<div class="kv kv-seats"><dt>Seats</dt><dd>${esc(seatEstimate(f))}<small class="seat-note">Typical seat count for this aircraft — airlines don't publish the actual number of passengers on board.</small></dd></div>` : ""}
