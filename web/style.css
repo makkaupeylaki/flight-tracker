@@ -609,6 +609,37 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
   .credit { padding-top: 4px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
 }
 
+/* ------------------------------------------------------------ split-flap (auto-refresh changes)
+   Only during the animation: each changed digit becomes a tile whose top half folds
+   down (0.3 s) and whose new bottom half drops in (0.3 s). The hidden .flap-size copy
+   keeps the time cell exactly its normal size (no layout shift). Afterwards app.js
+   puts the plain text back, so the font and colour are exactly as before. */
+.f-time.flipping { perspective: 220px; white-space: nowrap; } /* tiles must not wrap in the tight phone column */
+.flap { position: relative; display: inline-block; }
+.flap-size { visibility: hidden; }
+.flap-p {
+  position: absolute; inset: 0 -0.5px; text-align: center;
+  background: var(--surface-2); border-radius: 2px; backface-visibility: hidden;
+}
+.flap-top, .flap-fold-top { clip-path: inset(0 0 50% 0); }
+.flap-bottom, .flap-fold-bottom { clip-path: inset(50% 0 0 0); }
+.flap-fold-top { transform-origin: 50% 50%; animation: flap-fold-top 0.3s ease-in var(--flap-delay, 0s) both; }
+.flap-fold-bottom { transform-origin: 50% 50%; animation: flap-fold-bottom 0.3s ease-out calc(var(--flap-delay, 0s) + 0.3s) both; }
+.flap::after { /* the hinge line across the tile */
+  content: ""; position: absolute; left: -0.5px; right: -0.5px; top: 50%; height: 1px;
+  background: rgba(0, 0, 0, 0.55); pointer-events: none;
+}
+@keyframes flap-fold-top { from { transform: rotateX(0); } to { transform: rotateX(-90deg); } }
+@keyframes flap-fold-bottom { from { transform: rotateX(90deg); } to { transform: rotateX(0); } }
+/* Status pill: old label folds away, new label folds in (~0.4 s). */
+.pill.pill-flip-out { animation: pill-flip-out 0.2s ease-in both; }
+.pill.pill-flip-in { animation: pill-flip-in 0.2s ease-out both; }
+@keyframes pill-flip-out { to { transform: perspective(200px) rotateX(90deg); } }
+@keyframes pill-flip-in { from { transform: perspective(200px) rotateX(-90deg); } }
+/* The changed row: a soft highlight that fades out (also with reduced motion). */
+.flight.just-changed .f-row { animation: row-changed 1.5s ease-out backwards; }
+@keyframes row-changed { from { background-color: rgba(255, 210, 63, 0.16); } to { background-color: transparent; } }
+
 /* ------------------------------------------------------------ startup splash
    Fresh app open only (html.splash is set by the inline script in index.html).
    Opacity/transform only, so no layout shift; the overlay is fixed and
@@ -659,6 +690,8 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
   .chips button.chip-standby[data-term="standby"],
   .chips button.chip-standby[data-term="standby"][aria-pressed], .sq-label { animation: none; background: var(--bad); box-shadow: none; }
   .plane.emerg { animation: none; box-shadow: 0 0 12px 5px rgba(255, 90, 95, 0.75); background: rgba(255, 90, 95, 0.25); }
+  /* Split-flap: no flips (app.js skips them too); the row highlight still fades. */
+  .flap-p, .pill.pill-flip-out, .pill.pill-flip-in { animation: none; }
   /* Startup splash: skipped entirely (the inline script also never sets it). */
   .splash #splash { display: none; }
   .splash .top, .splash .controls > * { animation: none; }

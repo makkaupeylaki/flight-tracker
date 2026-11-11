@@ -277,7 +277,7 @@ const isXsp = (f) => Boolean(f && f.apt === "XSP");
 // ================================================================ board
 
 /** Load one day's board. `airport` is "sin" (Changi, the default) or "xsp" (Seletar). */
-async function loadBoard(date, { quiet = false, fresh = false, airport = "sin" } = {}) {
+async function loadBoard(date, { quiet = false, fresh = false, airport = "sin", animate = false } = {}) {
   const today = sgtDate(0);
   const id = boardId(date, airport);
   const path = airport === "xsp"
@@ -297,11 +297,154 @@ async function loadBoard(date, { quiet = false, fresh = false, airport = "sin" }
   // Re-render in place: filters, open rows and "earlier flights" live in `state`;
   // keep the scroll position in case the list height changed.
   const y = window.scrollY;
-  renderBoard();
+  renderWithFlips(id, animate);
   if (quiet && window.scrollY !== y) window.scrollTo(0, y);
   if (date === today) onTodayBoard();
   if (state.pendingShare && date === currentDate() && airport === state.airport) resolveShareLink();
 }
+
+// ---------------------------------------------------------------- split-flap
+
+// On an automatic refresh, rows that were on screen and whose shown time or status
+// changed get a short split-flap flip (time digits, status pill) and a fading
+// highlight. The board is re-rendered from scratch each time, so this works by
+// taking a snapshot of the visible rows just before the render and comparing just
+// after. Tiles exist only during the animation; the time cell gets its plain text
+// back afterwards, so its font and colour are exactly as before.
+const FLIP_MAX_ROWS = 8; // animated rows per refresh; the rest just update
+const FLIP_DIGIT_MS = 600; // one digit: top folds down (300) + new bottom drops in (300)
+const FLIP_STAGGER_MS = 150;
+const PILL_FLIP_MS = 400;
+const ROW_HIGHLIGHT_MS = 1500;
+
+const rowId = (el) => `${el.dataset.dir}|${el.dataset.key}`;
+const onScreen = (el) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; };
+
+/** What the visible rows show right now, or null when there's nothing to compare against. */
+function snapshotRows(id) {
+  const box = $("#board");
+  if (state.view !== "board" || state.term === "standby" || box.dataset.board !== id) return null;
+  const rows = new Map();
+  for (const el of $$(".flight", box)) {
+    if (!onScreen(el)) continue;
+    const t = el.querySelector(".f-time"), p = el.querySelector(".pill");
+    if (!t || !p) continue;
+    rows.set(rowId(el), {
+      time: t.dataset.final || t.textContent,
+      status: p.dataset.final || p.textContent,
+      pillClass: p.dataset.finalClass || p.className,
+    });
+  }
+  return { id, rows };
+}
+
+/** Render the board; when `animate`, flip the rows whose time or status changed. */
+function renderWithFlips(id, animate) {
+  const before = animate ? snapshotRows(id) : null;
+  renderBoard();
+  if (before) flipChangedRows(before);
+}
+
+function flipChangedRows(before) {
+  const box = $("#board");
+  if (box.dataset.board !== before.id || state.term === "standby") return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let n = 0;
+  for (const el of $$(".flight", box)) {
+    if (n >= FLIP_MAX_ROWS) break;
+    const prev = before.rows.get(rowId(el));
+    if (!prev || !onScreen(el)) continue; // only rows that were, and still are, on screen
+    const t = el.querySelector(".f-time"), p = el.querySelector(".pill");
+    const timeChanged = prev.time !== t.textContent;
+    const statusChanged = prev.status !== p.textContent;
+    if (!timeChanged && !statusChanged) continue;
+    n++;
+    el.classList.add("just-changed");
+    setTimeout(() => el.classList.remove("just-changed"), ROW_HIGHLIGHT_MS + 100);
+    if (reduce) continue; // reduced motion: highlight only, no flip
+    if (timeChanged) flipTime(t, prev.time);
+    if (statusChanged) flipPill(p, prev);
+  }
+}
+
+/** Flip only the changed digits of a time cell, then put its plain text back. */
+function flipTime(t, oldText) {
+  const now = t.textContent;
+  if (oldText.length !== now.length) return; // different shape: just update
+  let k = 0, html = "";
+  for (let i = 0; i < now.length; i++) {
+    const a = oldText[i], c = now[i];
+    if (a === c) { html += esc(c); continue; }
+    // The hidden copy keeps the cell exactly as wide and tall as plain text.
+    html += `<span class="flap" style="--flap-delay:${(k++ * FLIP_STAGGER_MS) / 1000}s"><span class="flap-size">${esc(c)}</span>`
+      + `<span class="flap-p flap-top">${esc(c)}</span><span class="flap-p flap-bottom">${esc(a)}</span>`
+      + `<span class="flap-p flap-fold-top">${esc(a)}</span><span class="flap-p flap-fold-bottom">${esc(c)}</span></span>`;
+  }
+  if (!k) return;
+  t.dataset.final = now;
+  t.classList.add("flipping");
+  t.innerHTML = html;
+  setTimeout(() => {
+    if (!t.isConnected) return; // re-rendered meanwhile: nothing to clean up
+    t.textContent = now;
+    t.classList.remove("flipping");
+    delete t.dataset.final;
+  }, (k - 1) * FLIP_STAGGER_MS + FLIP_DIGIT_MS + 50);
+}
+
+/** Status pill: the old label folds away, the new one folds in (~0.4 s). */
+function flipPill(p, prev) {
+  const nowText = p.textContent, nowClass = p.className;
+  p.dataset.final = nowText;
+  p.dataset.finalClass = nowClass;
+  p.textContent = prev.status;
+  p.className = `${prev.pillClass} pill-flip-out`;
+  setTimeout(() => {
+    if (!p.isConnected) return;
+    p.textContent = nowText;
+    p.className = `${nowClass} pill-flip-in`;
+    setTimeout(() => {
+      if (!p.isConnected) return;
+      p.className = nowClass;
+      delete p.dataset.final;
+      delete p.dataset.finalClass;
+    }, PILL_FLIP_MS / 2 + 30);
+  }, PILL_FLIP_MS / 2);
+}
+
+/**
+ * Debug helper (console): simulate an auto-refresh in which one visible row's time
+ * and/or status changed, through the same path as a real refresh. Changes only this
+ * page's in-memory copy of the board; the next real refresh replaces it.
+ *   flightlahDebug.simulateChange()                         // +7 min on the first visible row
+ *   flightlahDebug.simulateChange({ minutes: 125, status: "Delayed" })
+ *   flightlahDebug.simulateChange({ key: "SQ608|00:10", dir: "dep", status: "Boarding" })
+ */
+window.flightlahDebug = {
+  simulateChange({ key, dir, minutes = 7, status } = {}) {
+    const id = boardId(currentDate());
+    const data = state.boards.get(id);
+    const el = key
+      ? $$("#board .flight").find((x) => x.dataset.key === key && (!dir || x.dataset.dir === dir))
+      : $$("#board .flight").find(onScreen);
+    if (!data || !el) return null;
+    const copy = JSON.parse(JSON.stringify(data));
+    const f = (copy[el.dataset.dir] || []).find((x) => flightKey(x) === el.dataset.key);
+    if (!f) return null;
+    if (minutes) {
+      const [h, m] = shownTime(f).split(":").map(Number);
+      const tot = (((h * 60 + m + minutes) % 1440) + 1440) % 1440;
+      f.et = `${String(Math.floor(tot / 60)).padStart(2, "0")}:${String(tot % 60).padStart(2, "0")}`;
+      f.ets = `${f.d} ${f.et}`;
+    }
+    if (status) f.status = f.raw = status;
+    state.boards.set(id, copy);
+    const y = window.scrollY;
+    renderWithFlips(id, true);
+    if (window.scrollY !== y) window.scrollTo(0, y);
+    return { dir: el.dataset.dir, key: el.dataset.key, time: shownTime(f), status: statusLabel(f) };
+  },
+};
 
 function currentDate() { return sgtDate(state.day); }
 
@@ -742,6 +885,7 @@ function renderBoard() {
   const error = state.errors.get(boardId(date));
   const box = $("#board");
   box.setAttribute("aria-busy", String(state.loading));
+  box.dataset.board = boardId(date); // which board the rows on screen came from (split-flap diff)
   renderUpdated(data);
   renderStandbyChip();
   if (state.term === "standby") { renderStandby(box); return; }
@@ -1724,7 +1868,8 @@ function refreshNow({ manual = true } = {}) {
   if (manual) setSpinning(true); else pulseRefresh();
   const onBoard = state.view === "board";
   const date = onBoard ? currentDate() : sgtDate(0);
-  const jobs = [loadBoard(date, { quiet: true, fresh: manual, airport: onBoard ? state.airport : "sin" }), loadTraffic({ fresh: manual })];
+  // Only automatic refreshes animate changed rows (split-flap); a manual refresh just updates.
+  const jobs = [loadBoard(date, { quiet: true, fresh: manual, airport: onBoard ? state.airport : "sin", animate: !manual && onBoard }), loadTraffic({ fresh: manual })];
   refreshing = Promise.allSettled(jobs).then(async () => {
     if (manual) {
       const wait = MIN_SPIN_MS - (Date.now() - started);
