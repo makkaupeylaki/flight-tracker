@@ -609,6 +609,44 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
   .credit { padding-top: 4px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
 }
 
+/* ------------------------------------------------------------ startup splash
+   Fresh app open only (html.splash is set by the inline script in index.html).
+   Opacity/transform only, so no layout shift; the overlay is fixed and
+   pointer-events: none, so it never blocks taps. Total under 1 s:
+   wordmark 0-0.35 s, ring 0-0.8 s, overlay fades 0.5-0.75 s, UI staggers 0.5-0.93 s. */
+#splash { display: none; }
+.splash #splash {
+  display: grid; place-items: center; position: fixed; inset: 0; z-index: 3000;
+  background: var(--bg); pointer-events: none;
+  animation: splash-out 0.25s ease-in 0.5s forwards;
+}
+.splash-mark {
+  position: relative; color: var(--text); letter-spacing: 0.01em;
+  /* 34px / 190px ring on phones; scales up on wide screens (~50px / 280px at 1440px). */
+  font: 650 clamp(34px, 3.5vw, 52px)/1 var(--sans);
+  animation: splash-in 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.splash-mark::before {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: clamp(190px, 19.5vw, 290px); aspect-ratio: 1;
+  border: 1.5px solid var(--accent); border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0.55); opacity: 0;
+  animation: splash-ring 0.8s ease-out both;
+}
+@keyframes splash-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes splash-ring {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.55); }
+  30% { opacity: 0.55; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.15); }
+}
+@keyframes splash-out { to { opacity: 0; visibility: hidden; } }
+/* Header, toggles, search and chips fade up in turn, 60 ms apart. */
+.splash .top, .splash .controls > * { animation: intro-in 0.25s ease-out both; animation-delay: calc(0.5s + var(--i, 0) * 60ms); }
+.splash .controls > :nth-child(1) { --i: 1; }
+.splash .controls > :nth-child(2) { --i: 2; }
+.splash .controls > :nth-child(n+3) { --i: 3; }
+@keyframes intro-in { from { opacity: 0; transform: translateY(6px); } }
+
 @media (prefers-reduced-motion: reduce) {
   .card, .plane svg, .map-hint { transition: none; }
   .flight.live .live-tag { animation: none; }
@@ -621,4 +659,7 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
   .chips button.chip-standby[data-term="standby"],
   .chips button.chip-standby[data-term="standby"][aria-pressed], .sq-label { animation: none; background: var(--bad); box-shadow: none; }
   .plane.emerg { animation: none; box-shadow: 0 0 12px 5px rgba(255, 90, 95, 0.75); background: rgba(255, 90, 95, 0.25); }
+  /* Startup splash: skipped entirely (the inline script also never sets it). */
+  .splash #splash { display: none; }
+  .splash .top, .splash .controls > * { animation: none; }
 }

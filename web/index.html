@@ -26,9 +26,23 @@
   <meta name="twitter:description" content="Live departures, arrivals and aircraft around Singapore Changi Airport, terminals 1–4.">
   <meta name="twitter:image" content="https://flightlah.com/og.png?v=3">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous">
-  <link rel="stylesheet" href="/style.css?v=d17e8f8">
+  <script>
+    // Startup splash: decided before first paint. Fresh app open only (sessionStorage
+    // survives refreshes and tab switches, not a new launch); never with reduced motion.
+    // Purely visual: data loading in app.js starts immediately and never waits for it.
+    try {
+      if (!sessionStorage.getItem("flightlah-splash") && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        document.documentElement.classList.add("splash");
+        // All done by 0.93 s; drop the class so re-showing a view (tab switch) can't replay it.
+        setTimeout(function () { document.documentElement.classList.remove("splash"); }, 1000);
+      }
+      sessionStorage.setItem("flightlah-splash", "1");
+    } catch (e) { /* storage blocked: no splash */ }
+  </script>
+  <link rel="stylesheet" href="/style.css?v=ffa3ef5">
 </head>
 <body>
+  <div id="splash" aria-hidden="true"><span class="splash-mark">flightlah</span></div>
   <header class="top">
     <div class="brand">
       <span class="brand-name">flightlah</span>
