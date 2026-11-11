@@ -55,6 +55,52 @@ function callsignFor(f) {
   return /^\d{1,4}[A-Z]?$/.test(num) ? icao + num : null;
 }
 
+// ---------------------------------------------------------------- cargo (Tracker)
+//
+// Freighter detection, client-side, from what the ADS-B feed already gives us:
+// type code (ac.t), callsign (ac.cs) and registration (ac.reg). Edit this list.
+// When unsure, don't tag: a missed freighter is better than a passenger jet tagged
+// as cargo. A cargo-airline callsign alone is never enough; the type must fit too.
+const CARGO_RULES = {
+  // Types that are always freighters: tagged on their own.
+  alwaysFreighterTypes: ["B74F", "B77L", "B77F", "A124", "AN12", "A333F"],
+  // Types also flown with passengers: tagged only with a cargo callsign (below).
+  withCargoCallsignTypes: ["B744", "B748", "B763", "B762", "B752", "B738", "A332", "A306", "MD11"],
+  // Cargo airlines: their callsign (any flight number) counts as cargo.
+  cargoCallsigns: {
+    SQC: "Singapore Airlines Cargo", CKK: "China Cargo", FDX: "FedEx", UPS: "UPS", DHL: "DHL",
+    GTI: "Atlas Air", CLX: "Cargolux", KZE: "KZE", NCA: "Nippon Cargo", ABW: "AirBridgeCargo",
+    BOX: "AeroLogic", PAC: "Polar", CKS: "Kalitta", TAY: "ASL/TNT",
+  },
+  // Mixed airlines: their callsign counts as cargo only under these conditions.
+  mixedAirlines: {
+    CPA: { regPrefix: "B-L", types: ["B744", "B748"] }, // Cathay Cargo 747 freighters
+    ETH: { types: ["B763", "B744", "B748"] }, // Ethiopian Cargo (its passenger 737-800s are excluded)
+    MAS: { flightNumber: /^8\d\d$/ }, // MASkargo MAS8xx
+    QTR: { flightNumber: /^8\d\d$/ }, // Qatar Cargo QTR8xx
+  },
+};
+const CARGO_ALWAYS = new Set(CARGO_RULES.alwaysFreighterTypes);
+const CARGO_WITH_CALLSIGN = new Set(CARGO_RULES.withCargoCallsignTypes);
+
+/** True only when the type (and, for mixed types, the callsign) says freighter. */
+function isFreighter(ac) {
+  const type = String((ac && ac.t) || "").trim().toUpperCase();
+  if (!type) return false;
+  if (CARGO_ALWAYS.has(type)) return true;
+  if (!CARGO_WITH_CALLSIGN.has(type)) return false;
+  const m = String(ac.cs || "").trim().toUpperCase().match(/^([A-Z]{3})0*(\d{1,4}[A-Z]?)$/);
+  if (!m) return false;
+  const [, prefix, num] = m;
+  if (Object.prototype.hasOwnProperty.call(CARGO_RULES.cargoCallsigns, prefix)) return true;
+  const rule = CARGO_RULES.mixedAirlines[prefix];
+  if (!rule) return false;
+  if (rule.types && !rule.types.includes(type)) return false;
+  if (rule.regPrefix && !String(ac.reg || "").trim().toUpperCase().startsWith(rule.regPrefix)) return false;
+  if (rule.flightNumber && !rule.flightNumber.test(num)) return false;
+  return true;
+}
+
 // ================================================================ utils
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -412,6 +458,14 @@ function flipPill(p, prev) {
   }, PILL_FLIP_MS / 2);
 }
 
+// Sample aircraft for flightlahDebug.cargoCheck(): the first two must be cargo, the rest not.
+const CARGO_SAMPLES = [
+  { label: "747-400F, Singapore Airlines Cargo", cs: "SQC7398", t: "B744", reg: "9V-SFN" },
+  { label: "777F, FedEx", cs: "FDX5021", t: "B77L", reg: "N851FD" },
+  { label: "A350 passenger, Singapore Airlines", cs: "SIA322", t: "A359", reg: "9V-SMA" },
+  { label: "737 MAX passenger type with a cargo-looking callsign", cs: "SQC9101", t: "B38M", reg: "9V-MBA" },
+];
+
 /**
  * Debug helper (console): simulate an auto-refresh in which one visible row's time
  * and/or status changed, through the same path as a real refresh. Changes only this
@@ -421,6 +475,13 @@ function flipPill(p, prev) {
  *   flightlahDebug.simulateChange({ key: "SQ608|00:10", dir: "dep", status: "Boarding" })
  */
 window.flightlahDebug = {
+  /**
+   * Cargo detector check on sample aircraft (or your own list):
+   *   flightlahDebug.cargoCheck()  ->  [{ label, cs, t, cargo }]
+   */
+  cargoCheck(samples = CARGO_SAMPLES) {
+    return samples.map((s) => ({ ...s, cargo: isFreighter(s) }));
+  },
   simulateChange({ key, dir, minutes = 7, status } = {}) {
     const id = boardId(currentDate());
     const data = state.boards.get(id);
@@ -1480,7 +1541,22 @@ function initMap() {
     },
   });
   new Reset().addTo(map);
+  // "Cargo": show only freighters (tap again for all), under Reset.
+  const Cargo = L.Control.extend({
+    options: { position: "topleft" },
+    onAdd() {
+      const bar = L.DomUtil.create("div", "leaflet-bar cargo-bar");
+      const btn = L.DomUtil.create("button", "map-cargo", bar);
+      btn.type = "button";
+      L.DomEvent.disableClickPropagation(bar);
+      L.DomEvent.on(btn, "click", () => setCargoOnly(!tracker.cargoOnly));
+      tracker.cargoBtn = btn;
+      return bar;
+    },
+  });
+  new Cargo().addTo(map);
   tracker.map = map;
+  renderCargoControl(); // label + filter state (reads tracker.map)
 }
 
 const RESET_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
@@ -1515,7 +1591,15 @@ function enableModifierWheelZoom(map) {
 }
 
 const planeClass = (ac, selected, onBoard) =>
-  ["plane", ac.gnd ? "ground" : "", onBoard ? "board" : "", selected ? "sel" : "", emergencyOf(ac) ? "emerg" : ""].join(" ");
+  ["plane", ac.gnd ? "ground" : "", onBoard ? "board" : "", isFreighter(ac) ? "cargo" : "", selected ? "sel" : "", emergencyOf(ac) ? "emerg" : ""].join(" ");
+
+/** Marker wrapper classes the Cargo filter hides by (plane markers only, not the airport dots). */
+function markCargo(entry) {
+  const el = entry.marker.getElement();
+  if (!el) return;
+  el.classList.add("plane-marker");
+  el.classList.toggle("plane-cargo", isFreighter(entry.ac));
+}
 
 /** Map label for a flagged aircraft: "SQUAWK 7700 · GENERAL EMERGENCY". */
 const squawkLabel = (sq) => `SQUAWK ${sq} · ${EMERGENCY_SQUAWKS[sq][0]}`;
@@ -1541,8 +1625,10 @@ function updatePlane(entry) {
     entry.marker.options.title = markerTitle(ac);
     entry.marker.setZIndexOffset(sq ? 1000 : 0);
     entry.marker.setIcon(planeIcon(ac, tracker.selected === ac.hex, entry.onBoard));
+    markCargo(entry);
     return;
   }
+  markCargo(entry);
   const box = el.firstElementChild;
   box.className = planeClass(ac, tracker.selected === ac.hex, entry.onBoard);
   box.firstElementChild.style.transform = `rotate(${ac.trk ?? 0}deg)`;
@@ -1602,7 +1688,7 @@ async function loadTraffic({ fresh = false } = {}) {
 
 const markerTitle = (ac) => {
   const sq = emergencyOf(ac);
-  return `${ac.cs || "Unknown flight"}${sq ? `, possible emergency: squawk ${sq} (${EMERGENCY_SQUAWKS[sq][1]})` : ""}`;
+  return `${ac.cs || "Unknown flight"}${isFreighter(ac) ? ", cargo" : ""}${sq ? `, possible emergency: squawk ${sq} (${EMERGENCY_SQUAWKS[sq][1]})` : ""}`;
 };
 
 /** Add or move one plane's marker. */
@@ -1649,6 +1735,34 @@ function applyTraffic(list) {
     resolveFocus(); // also picks the plane up later, e.g. once it takes off
   }
   if (tracker.selected || tracker.focus) renderCard();
+  renderCargoControl();
+}
+
+// ---------------------------------------------------------------- Cargo filter (Tracker)
+
+/** Freighters among the planes on the map now. */
+const cargoCount = () => [...tracker.markers.values()].filter((e) => !e.lost && isFreighter(e.ac)).length;
+
+/** Cargo button label/pressed state, the map's filter class and the "none in view" note. */
+function renderCargoControl() {
+  const btn = tracker.cargoBtn;
+  if (!btn) return;
+  const on = Boolean(tracker.cargoOnly);
+  const n = cargoCount();
+  btn.setAttribute("aria-pressed", String(on));
+  btn.innerHTML = on ? `Cargo <span class="cargo-count">${n}</span>` : "Cargo";
+  btn.setAttribute("aria-label", on ? `Showing cargo flights only: ${n}. Show all aircraft` : "Show cargo flights only");
+  btn.title = on ? "Show all aircraft" : "Show cargo flights only";
+  if (tracker.map) tracker.map.getContainer().classList.toggle("cargo-only", on);
+  $("#cargo-note").hidden = !(on && n === 0);
+}
+
+function setCargoOnly(on) {
+  tracker.cargoOnly = on;
+  // A selected passenger plane would be hidden: close its card.
+  const sel = tracker.selected && tracker.markers.get(tracker.selected);
+  if (on && sel && !isFreighter(sel.ac)) select(null);
+  renderCargoControl();
 }
 
 function select(hex) {
@@ -1755,6 +1869,7 @@ function renderCard() {
   $("#card-body").innerHTML = `
     <div class="c-head">
       <span class="c-cs${ac.cs ? "" : " c-unknown"}">${esc(ac.cs || "Unknown flight")}</span>
+      ${isFreighter(ac) ? '<span class="c-cargo">CARGO</span>' : ""}
       <span class="c-type">${esc([acName(ac.t), ac.reg].filter(Boolean).join(" · ") || "Unknown type")}</span>
     </div>
     ${route}

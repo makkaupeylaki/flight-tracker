@@ -23,7 +23,8 @@
   --t2: #c4a2ff; /* violet */
   --t3: #ff8fbd; /* pink */
   --t4: #4fd8c8; /* teal */
-  --seletar: #7ee787; /* Seletar on the Tracker: green, apart from Changi's yellow */
+  --seletar: #7ee787;
+  --cargo: #4cc9f0; /* Tracker freighters: sky cyan, apart from yellow/white/red/green on the map */ /* Seletar on the Tracker: green, apart from Changi's yellow */
 
   --radius: 10px;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
@@ -454,6 +455,7 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
 .plane svg { width: 24px; height: 24px; fill: var(--text); filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8)); transition: transform 0.6s ease; }
 .plane.ground svg { fill: var(--faint); }
 .plane.board svg { fill: #ffffff; }
+.plane.cargo svg { fill: var(--cargo); } /* freighters; selected (yellow) and emergency (red) still win */
 .plane.sel svg { fill: var(--accent); }
 /* Possible emergency (squawk 7500/7600/7700): red plane, red glow and a label, slow pulse. */
 .plane.emerg { border-radius: 50%; animation: sq-glow 1.5s ease-in-out infinite; }
@@ -548,6 +550,21 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
   border: 0; background: transparent; color: var(--muted); font-size: 22px; line-height: 1;
 }
 .c-head { display: flex; align-items: baseline; gap: 10px; padding-right: 30px; }
+.c-cargo {
+  align-self: center; padding: 1px 7px; border-radius: 999px; background: var(--cargo); color: var(--bg);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+}
+/* Cargo filter: a map control under Reset (44 px tall, phone-sized). */
+.leaflet-bar .map-cargo {
+  display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 12px; border: 0; border-radius: 4px;
+  background: var(--surface); color: var(--text); font: 600 13px/1 var(--sans); cursor: pointer; white-space: nowrap;
+}
+.leaflet-bar .map-cargo:hover { background: var(--surface-2); }
+.leaflet-bar .map-cargo[aria-pressed="true"] { color: var(--cargo); box-shadow: inset 0 0 0 1.5px var(--cargo); }
+.cargo-count { padding: 0 6px; border-radius: 999px; background: var(--cargo); color: var(--bg); font-size: 11px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.map.cargo-only .plane-marker:not(.plane-cargo) { display: none; }
+.cargo-note { color: var(--text); }
+#map-note:not([hidden]) ~ .cargo-note { top: 98px; } /* below the other map note when both show */
 .c-cs { font-family: var(--mono); font-size: 20px; font-weight: 650; color: var(--accent); }
 .c-type { color: var(--muted); font-size: 13px; }
 .c-route { margin: 6px 0 0; font-size: 15px; }

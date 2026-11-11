@@ -39,7 +39,7 @@
       sessionStorage.setItem("flightlah-splash", "1");
     } catch (e) { /* storage blocked: no splash */ }
   </script>
-  <link rel="stylesheet" href="/style.css?v=20d5df7">
+  <link rel="stylesheet" href="/style.css?v=1548174">
 </head>
 <body>
   <div id="splash" aria-hidden="true"><span class="splash-mark">flightlah</span></div>
@@ -117,6 +117,7 @@
       </details>
       <div id="map-loading" class="map-note map-loading" role="status" hidden><span class="dot-spin" aria-hidden="true"></span>Loading map…</div>
       <div id="map-note" class="map-note" hidden></div>
+      <div id="cargo-note" class="map-note cargo-note" role="status" hidden>No cargo flights in view</div>
       <article id="card" class="card" aria-live="polite" aria-hidden="true">
         <button class="card-close" type="button" aria-label="Close">×</button>
         <div id="card-body"></div>
@@ -128,6 +129,6 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous" defer></script>
   <script src="config.js"></script>
-  <script src="/app.js?v=2a5f071" defer></script>
+  <script src="/app.js?v=02522fe" defer></script>
 </body>
 </html>
