@@ -479,6 +479,41 @@ const SEATS = {
   "QF A388": 485, "QF B789": 236,
 };
 
+// ---------------------------------------------------------------- aircraft names
+
+// ICAO type code -> the family name people know. Display only: the raw code stays on
+// the flight (the seat estimate uses it). A code that isn't here is shown as it is.
+const AC_NAMES = {
+  // Airbus
+  A318: "A318", A319: "A319", A320: "A320", A321: "A321",
+  A19N: "A319neo", A20N: "A320neo", A21N: "A321neo",
+  BCS1: "A220", BCS3: "A220",
+  A332: "A330", A333: "A330", A338: "A330", A339: "A330",
+  A342: "A340", A343: "A340", A345: "A340", A346: "A340",
+  A359: "A350", A35K: "A350",
+  A388: "A380",
+  // Boeing
+  B733: "737", B734: "737", B735: "737", B736: "737", B737: "737", B738: "737", B739: "737",
+  B37M: "737", B38M: "737", B39M: "737", B3XM: "737",
+  B742: "747", B744: "747", B748: "747",
+  B752: "757", B753: "757",
+  B762: "767", B763: "767", B764: "767",
+  B772: "777", B773: "777", B77L: "777", B77W: "777", B778: "777", B779: "777",
+  B788: "787", B789: "787", B78X: "787",
+  // Embraer, ATR, others
+  E170: "Embraer 170", E175: "Embraer 175", E190: "Embraer 190", E195: "Embraer 195",
+  E290: "Embraer 190-E2", E295: "Embraer 195-E2",
+  AT43: "ATR 42", AT45: "ATR 42", AT46: "ATR 42",
+  AT72: "ATR 72", AT75: "ATR 72", AT76: "ATR 72",
+  DH8D: "Dash 8-400", CRJ9: "CRJ900",
+};
+
+/** "B788" -> "787"; unknown codes come back unchanged, empty stays empty. */
+function acName(code) {
+  const c = String(code || "").trim();
+  return AC_NAMES[c.toUpperCase()] || c;
+}
+
 /** "~253 seats (est.)" for a known airline + aircraft type, else null. */
 function seatEstimate(f) {
   const n = f && f.al && f.ac ? SEATS[`${f.al} ${String(f.ac).toUpperCase()}`] : undefined;
@@ -544,7 +579,7 @@ function detailHTML(f, dir = state.dir) {
     ${kv("Estimated", time(f.et, f.ets) || "—")}
     ${kv("Actual", time(f.at, f.ats) || "—")}
     ${delayDetailHTML(f, dir)}
-    ${kv("Aircraft", esc(f.ac) || "—")}
+    ${kv("Aircraft", esc(acName(f.ac)) || "—")}
     ${kv("Terminal", f.t ? `<span class="${termClass(f.t)}">T${esc(f.t)}</span>` : "Not assigned yet")}
     ${seatEstimate(f) ? `<div class="kv kv-seats"><dt>Seats</dt><dd>${esc(seatEstimate(f))}<small class="seat-note">Typical seat count for this aircraft — airlines don't publish the actual number of passengers on board.</small></dd></div>` : ""}
   </dl>
@@ -791,7 +826,7 @@ function renderStandby(box) {
     return `<article class="sb-item" aria-label="${esc(ac.cs || "Unknown flight")}, possible emergency">
       <div class="sb-head">
         <span class="sb-cs${ac.cs ? "" : " c-unknown"}">${esc(ac.cs || "Unknown flight")}</span>
-        <span class="sb-type">${esc([ac.t, ac.reg].filter(Boolean).join(" · ") || "Unknown type")}</span>
+        <span class="sb-type">${esc([acName(ac.t), ac.reg].filter(Boolean).join(" · ") || "Unknown type")}</span>
         <span class="sb-sq">Squawk ${esc(ac.sq)}</span>
       </div>
       <p class="sb-meaning">Possible emergency: ${esc(meaning)}</p>
@@ -1551,7 +1586,7 @@ function renderCard() {
     $("#card-body").innerHTML = `
       <div class="c-head">
         <span class="c-cs">${esc(f.fn)}</span>
-        <span class="c-type">${esc([f.an || f.al, f.ac].filter(Boolean).join(" · "))}</span>
+        <span class="c-type">${esc([f.an || f.al, acName(f.ac)].filter(Boolean).join(" · "))}</span>
       </div>
       ${routeHTML(f)}
       <p class="c-msg">${notLiveMessage(f)}</p>
@@ -1576,7 +1611,7 @@ function renderCard() {
   $("#card-body").innerHTML = `
     <div class="c-head">
       <span class="c-cs${ac.cs ? "" : " c-unknown"}">${esc(ac.cs || "Unknown flight")}</span>
-      <span class="c-type">${esc([ac.t, ac.reg].filter(Boolean).join(" · ") || "Unknown type")}</span>
+      <span class="c-type">${esc([acName(ac.t), ac.reg].filter(Boolean).join(" · ") || "Unknown type")}</span>
     </div>
     ${route}
     ${emergencyOf(ac) ? `<p class="c-emerg"><strong>${esc(squawkLabel(ac.sq))}</strong><br>Possible emergency: this aircraft is broadcasting squawk ${esc(ac.sq)} (${esc(EMERGENCY_SQUAWKS[ac.sq][1])}). A squawk is a broadcast, not a confirmed incident.</p>` : ""}
@@ -1627,7 +1662,7 @@ function renderSeletar() {
     return `<li><button type="button" data-near-hex="${esc(ac.hex)}">
       <span class="near-id"><span class="near-cs${ac.cs ? "" : " c-unknown"}">${esc(ac.cs || "Unknown")}</span>${firefly}</span>
       <span class="near-num">${esc(alt)}</span>
-      <span class="near-type">${esc(ac.t || "Unknown type")}${flight}</span>
+      <span class="near-type">${esc(acName(ac.t) || "Unknown type")}${flight}</span>
       <span class="near-num">${esc(spd)}</span>
     </button></li>`;
   }).join("")}</ul>`;
