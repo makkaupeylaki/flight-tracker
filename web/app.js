@@ -63,9 +63,10 @@ function callsignFor(f) {
 // as cargo. A cargo-airline callsign alone is never enough; the type must fit too.
 const CARGO_RULES = {
   // Types that are always freighters: tagged on their own.
-  alwaysFreighterTypes: ["B74F", "B77L", "B77F", "A124", "AN12", "A333F"],
+  // (B77L is not here: it's the code for both the 777F and the passenger 777-200LR.)
+  alwaysFreighterTypes: ["B74F", "B77F", "A124", "AN12", "A333F"],
   // Types also flown with passengers: tagged only with a cargo callsign (below).
-  withCargoCallsignTypes: ["B744", "B748", "B763", "B762", "B752", "B738", "A332", "A306", "MD11"],
+  withCargoCallsignTypes: ["B744", "B748", "B77L", "B763", "B762", "B752", "B738", "A332", "A306", "MD11"],
   // Cargo airlines: their callsign (any flight number) counts as cargo.
   cargoCallsigns: {
     SQC: "Singapore Airlines Cargo", CKK: "China Cargo", FDX: "FedEx", UPS: "UPS", DHL: "DHL",
@@ -464,6 +465,7 @@ const CARGO_SAMPLES = [
   { label: "777F, FedEx", cs: "FDX5021", t: "B77L", reg: "N851FD" },
   { label: "A350 passenger, Singapore Airlines", cs: "SIA322", t: "A359", reg: "9V-SMA" },
   { label: "737 MAX passenger type with a cargo-looking callsign", cs: "SQC9101", t: "B38M", reg: "9V-MBA" },
+  { label: "777-200LR passenger (same B77L code as the 777F)", cs: "QTR920", t: "B77L", reg: "A7-BBC" },
 ];
 
 /**
