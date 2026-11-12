@@ -356,10 +356,25 @@ body[data-airport="xsp"] .col-head { color: var(--seletar); }
 .kv dd small { color: var(--muted); font-family: var(--sans); font-size: 12px; }
 
 @media (max-width: 460px) {
-  /* 7.2em (108px) fits the widest badge, "Gate info 15:05", even in wide fallback fonts
-     (DejaVu Sans: 106px with 5px padding); the city column gives way instead. */
-  .f-row { grid-template-columns: 3em auto minmax(0, 1fr) 2.3em 7.2em; column-gap: 8px; }
+  /* No separate terminal column on phones: the city takes that space, and the terminal
+     tag sits inside the 7.6em status column, at its left edge, on the pill's line (the
+     pill stays right-aligned). 7.6em fits tag + widest badge ("Gate info 15:05") with
+     7-9px to spare in phone system fonts. */
+  .f-row { grid-template-columns: 3em auto minmax(0, 1fr) 7.6em; column-gap: 8px; }
   .f-where { flex-direction: column; align-items: center; gap: 1px; line-height: 1.15; }
+  .f-row > .f-where {
+    grid-column: 4; grid-row: 1; justify-self: start; align-self: center;
+    height: calc(11px * 1.45 + 4px); /* the pill's height, so tag and pill share a centre line */
+    flex-direction: row; align-items: center; line-height: 1;
+  }
+  .f-row > .f-status { grid-column: 4; grid-row: 1; }
+  /* With a delay tag the status stack fills the first track and the pill sits at its top. */
+  .f-row:has(.delay-tag) > .f-where { align-self: start; }
+  /* Wide fallback fonts (e.g. DejaVu Sans) only: the longest badges end in "..." rather than
+     run into the tag. Reserve = tag width + 4px (T1-T4 15.6px, TBC 19.8px, XSP 23.4px). */
+  .f-row > .f-status .pill { max-width: calc(100% - 19.6px); }
+  .f-row:has(.f-term.tbc) > .f-status .pill { max-width: calc(100% - 23.8px); }
+  .f-row:has(.f-term.xsp) > .f-status .pill { max-width: calc(100% - 27.4px); }
   .f-gate { font-size: 11px; }
   .pill { font-size: 11px; padding: 2px 5px; }
   .f-detail, .f-actions { padding-left: 16px; }
