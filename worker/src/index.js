@@ -9,6 +9,7 @@
 import { fetchBoard, sgtToday, addDays } from "./changi.js";
 import { refreshSeletar, XSP_KEY } from "./seletar.js";
 import { fetchTraffic, fetchCallsign, normaliseArea, normaliseCallsign } from "./traffic.js";
+import { gateLocked } from "./gate.js";
 
 const BOARD_TTL_S = 4 * 86400; // keep a few days of boards in KV
 const HEARTBEAT_MS = 30 * 60e3; // rewrite unchanged board at most every 30 min
@@ -323,6 +324,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     if (request.method !== "GET") return json({ error: "Method not allowed" }, { status: 405, headers: cors });
+    if (await gateLocked(request, env)) return json({ error: "flightlah is closed" }, { status: 401, headers: cors });
 
     let res;
     try {

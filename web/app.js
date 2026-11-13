@@ -129,6 +129,14 @@ const fmtDay = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "sho
 /** `fresh` skips the browser's HTTP cache (used by the refresh button). */
 async function getJSON(path, { fresh = false, signal } = {}) {
   const res = await fetch(API + path, { headers: { Accept: "application/json" }, cache: fresh ? "no-cache" : "default", signal });
+  if (res.status === 401 && !location.search.includes("relock")) {
+    // Gate locked (no/expired cookie), or a stale copy still calling the old
+    // cross-origin API: bounce through the lock screen. With a valid cookie
+    // this reload pulls the current page + config and self-heals. The relock
+    // param stops a loop if the copy is still stale; then show the error.
+    location.assign("/?relock=1");
+    return new Promise(() => {}); // navigation takes over; never render an error
+  }
   let body = null;
   try { body = await res.json(); } catch { /* non-JSON */ }
   if (!res.ok) throw new Error((body && body.error) || `HTTP ${res.status}`);
