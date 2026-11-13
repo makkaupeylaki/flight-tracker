@@ -94,9 +94,11 @@ const page = (path, { env = { GATE_PASSWORD: TEST_SECRET }, method = "GET", cook
 
 test("middleware: off without the secret; lock screen without the cookie", async () => {
   assert.equal(await (await page("/", { env: {} })).text(), "the app");
-  for (const path of ["/", "/app.js", "/about", "/style.css?v=1"]) {
+  // Pages (no file extension) get the lock screen with 200, so chat apps still build
+  // link previews; assets (with an extension) get 401 so nothing caches it as JS/CSS.
+  for (const [path, status] of [["/", 200], ["/about", 200], ["/?flight=SQ1", 200], ["/app.js", 401], ["/style.css?v=1", 401], ["/icons/other.png", 401]]) {
     const res = await page(path);
-    assert.equal(res.status, 401, path);
+    assert.equal(res.status, status, path);
     assert.equal(res.headers.get("Cache-Control"), "no-store");
     const html = await res.text();
     assert.match(html, /flightlah is <span class="y">closed<\/span> lah/);
@@ -114,9 +116,12 @@ test("middleware: identity assets stay public (icons, manifest, og image)", asyn
 test("middleware: unlock with the right password sets a session cookie the Worker accepts", async () => {
   const form = (pw) => new URLSearchParams({ password: pw });
   const wrong = await page("/_gate", { method: "POST", body: form("nope") });
-  assert.equal(wrong.status, 401);
+  assert.equal(wrong.status, 200, "lock screen again (a page path, so 200)");
+  assert.ok(!wrong.headers.get("Set-Cookie"), "no cookie for a wrong password");
   assert.match(await wrong.text(), /Wrong password\. Try again\./);
-  assert.equal((await page("/_gate")).status, 401, "GET /_gate shows the lock screen");
+  const get = await page("/_gate");
+  assert.equal(get.status, 200, "GET /_gate shows the lock screen");
+  assert.ok(!get.headers.get("Set-Cookie"));
 
   const ok = await page("/_gate", { method: "POST", body: form(TEST_SECRET) });
   assert.equal(ok.status, 303);
