@@ -9,6 +9,10 @@
 /*.css
   Cache-Control: public, max-age=300
 
+# Font files never change under the same name (a new cut gets a new file name).
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
 # The service worker must always be re-checked, so app updates reach installed copies.
 /sw.js
   ! Cache-Control

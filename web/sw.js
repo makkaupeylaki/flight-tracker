@@ -18,12 +18,14 @@
 //   app.js:    index.html (<script src="/app.js?v=...">) and SHELL_FILES below
 // The cache key in SHELL_FILES must match the URL the pages request.
 
-const VERSION = "v4";
+const VERSION = "v5";
 const SHELL = `flightlah-shell-${VERSION}`;
 const DATA = `flightlah-data-${VERSION}`;
 const SHELL_FILES = [
-  "./", "index.html", "/app.js?v=ef0ad9b", "/style.css?v=ea9ef0b", "config.js", "manifest.webmanifest",
+  "./", "index.html", "/app.js?v=ef0ad9b", "/style.css?v=b42618d", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png",
+  "/fonts/ibm-plex-mono-latin-400.woff2", "/fonts/ibm-plex-mono-latin-500.woff2",
+  "/fonts/ibm-plex-mono-latin-600.woff2", "/fonts/ibm-plex-mono-latin-700.woff2",
 ];
 // Extra pages, cached best-effort so a missing one never blocks the install.
 // "about" is the /about URL Pages serves for about.html.
