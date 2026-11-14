@@ -805,6 +805,25 @@ function detailHTML(f, dir = state.dir) {
   </div>`;
 }
 
+/**
+ * Terminal + wing for the TERM column and the phone sub-line: "T2 North" from the gate
+ * letter (both directions, same GATE_SIDES rule as the gate line), "T4" (no wings), "T2" when the gate is missing or its
+ * letter isn't mapped, "TBC" with no terminal. Returns { cls, text }.
+ */
+function termWing(f) {
+  const side = f.gate ? GATE_SIDES[plainGate(f.gate)[0]] : null;
+  // A gate in another terminal's letter range (a T2 flight at D40) shows just "T2", so the
+  // TERM column always matches the terminal filter; the gate column still says D40.
+  if (side && (!f.t || String(f.t) === side[0])) return { cls: `t${side[0]}`, text: `T${side[0]} ${side[1]}` };
+  return { cls: termClass(f.t), text: termLabel(f.t) };
+}
+
+/** Remark colour class: the status class, plus "landed" (green) once it has landed. */
+function remarkClass(f) {
+  const c = statusClass(f);
+  return c === "done" && /landed|arrived/i.test(`${f.raw || ""} ${f.status || ""}`) ? "done landed" : c;
+}
+
 function rowHTML(f, dir = state.dir) {
   const key = flightKey(f);
   const open = state.open.has(key);
@@ -812,33 +831,38 @@ function rowHTML(f, dir = state.dir) {
   const live = isLive(f, dir);
   const dep = dir === "dep";
   const saved = isFav(dir, f);
+  const xsp = isXsp(f);
   // Flag the change on the row only while people may still be heading to the gate;
   // the detail keeps it after departure.
   const moved = gateChanged(f) && !isFinished(f);
   const note = moved ? `<span class="f-note">Gate changed, was ${esc(f.gate_was)}</span>` : "";
-  // Second line, both directions: wing, gate and ground handler ("T1 West · Gate C20 · SATS"),
-  // once Changi publishes the gate. No gate: the terminal column says it all.
-  const gha = isXsp(f) ? null : groundHandler(f);
-  // Seletar: no terminals; the second line is the door (departures) or belt (arrivals).
-  const xspLine = isXsp(f) && (dep ? f.door : f.belt)
-    ? `<span class="f-sub f-gate">${esc(dep ? f.door : `Belt ${f.belt}`)}</span>`
-    : "";
-  const side = isXsp(f) ? xspLine : f.gate
-    ? `<span class="f-sub f-gate${moved ? " changed" : ""}"${moved ? ` title="Gate changed from ${esc(f.gate_was)}"` : ""}>${gateLineHTML(f, dep)}${gha ? ` · <span class="f-gha" title="Ground handler">${esc(gha)}</span>` : ""}</span>`
-    : "";
+  const gha = xsp ? null : groundHandler(f);
+  const tw = xsp ? null : termWing(f);
+  // Departures keep Changi's gate as shown (hold-room L/R included); arrivals the plain gate.
+  const gate = xsp ? (dep ? f.door : f.belt && `Belt ${f.belt}`) : f.gate && (dep ? String(f.gate).trim().toUpperCase() : plainGate(f.gate));
+  const gateCell = gate
+    ? `<span class="f-gate${moved ? " changed" : ""}"${moved ? ` title="Gate changed from ${esc(f.gate_was)}"` : ""}>${esc(gate)}${moved ? ` <s class="gate-old">${esc(f.gate_was)}</s>` : ""}</span>`
+    : `<span class="f-gate none">—</span>`;
+  // Phone sub-line: "T2 North · Gate E20 · SATS" (Seletar: the door or belt).
+  const sub = xsp
+    ? (gate ? `<span class="f-sub">${esc(gate)}</span>` : "")
+    : `<span class="f-sub"><span class="${tw.cls}">${esc(tw.text)}</span>${f.gate ? ` · <span class="f-sub-gate${moved ? " changed" : ""}">Gate ${esc(gate)}</span>` : ""}${gha ? ` · ${esc(gha)}` : ""}</span>`;
   // The row is a focusable element acting as a button (Enter/Space open it), so the
   // star can be a real button inside it without opening the row.
   return `<div class="flight${open ? " open" : ""}${live ? " live" : ""}${saved ? " saved" : ""}" data-key="${esc(key)}" data-dir="${dir}">
     <div class="f-row" role="button" tabindex="0" aria-expanded="${open}">
       <span class="live-tag" title="On the map now"><span class="sr-only">Live on map. </span></span>
       <span class="f-time${changed ? " changed" : ""}" title="${changed ? `Scheduled ${esc(f.st)}, estimated ${esc(f.et)}` : "Scheduled"}">${esc(shownTime(f))}</span>
-      <span class="f-flight"><span class="f-fn">${esc(f.fn)}</span></span>
-      <span class="f-city">${esc(f.city || f.ap)}</span>
-      <span class="f-where">${isXsp(f)
-        ? '<span class="f-term xsp" title="Seletar Airport">XSP</span>'
-        : `<span class="f-term ${termClass(f.t)}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${termLabel(f.t)}</span>`}</span>
-      <span class="f-status"><span class="pill ${statusClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>${delayTagHTML(f, dir)}</span>
-      ${side}${note}
+      <span class="f-main">
+        <span class="f-line1"><span class="f-flight"><span class="f-fn">${esc(f.fn)}</span></span><span class="f-city" title="${esc(f.city || f.ap)}">${esc(f.city || f.ap)}</span></span>
+        ${sub}${note}
+      </span>
+      ${xsp
+        ? '<span class="f-term xsp" title="Seletar Airport: no terminals">—</span>'
+        : `<span class="f-term ${tw.cls}"${f.t ? "" : ' title="Terminal not assigned yet"'}>${esc(tw.text)}</span>`}
+      ${gateCell}
+      <span class="f-gha"${gha ? ' title="Ground handler"' : ""}>${esc(gha || "")}</span>
+      <span class="f-status"><span class="pill ${remarkClass(f)}" title="${esc(f.status)}">${esc(statusLabel(f))}</span>${delayTagHTML(f, dir)}</span>
       <button class="fav-btn" type="button" data-fav aria-pressed="${saved}" aria-label="${saved ? "Remove" : "Save"} ${esc(f.fn)}${saved ? " from saved flights" : ""}" title="${saved ? "Saved" : "Save flight"}">${STAR_SVG(saved)}</button>
     </div>
     ${open ? detailHTML(f, dir) : ""}
@@ -897,6 +921,7 @@ function renderUpdated(data) {
       ? "No connection: this is the last board flightlah saved on this device"
       : "The connection is slow: this is the last saved board, and it updates as soon as the new one arrives";
     el.innerHTML = `<span class="stale">${offline ? "Offline" : "Slow connection"}</span> · showing data from ${esc(at || "earlier")}`;
+    el.closest(".refresh-group")?.classList.add("is-stale");
     return;
   }
   const err = state.errors.get(boardIdOf(data));
@@ -911,8 +936,9 @@ function renderUpdated(data) {
     ? `<span class="stale" title="${esc(data.error || err || "")}">data may be slightly old</span>`
     : old
       ? `data from ${esc(dataTime)}`
-      : `auto-refreshes every ${AUTO_REFRESH_MS / 60e3} min`;
+      : `auto ${AUTO_REFRESH_MS / 60e3} min`;
   el.innerHTML = `Updated ${esc(t)} SGT · ${tail}`;
+  el.closest(".refresh-group")?.classList.toggle("is-stale", Boolean(stale));
 }
 
 /** Today's finished flights older than the grace period are tucked away. */
@@ -923,10 +949,23 @@ function isEarlier(f) {
   return m !== null && m < Date.now() / 60e3 - EARLIER_GRACE_MIN;
 }
 
-// Wide screens (900px+): departures and arrivals side by side instead of the toggle.
-const WIDE_MQ = window.matchMedia("(min-width: 900px)");
+// Wide screens: departures and arrivals side by side instead of the toggle. The
+// board's 7-column grid needs ~1380px for two panels; narrower desktops show one.
+const WIDE_MQ = window.matchMedia("(min-width: 1380px)");
 const isWide = () => WIDE_MQ.matches;
 const DIRS = [["dep", "Departures"], ["arr", "Arrivals"]];
+
+/** Panel title ("DEPARTURES" + "SIN · TODAY") and the column labels row. */
+function panelHeadHTML(dir, title) {
+  const day = { "-1": "Yday", 0: "Today", 1: "Tmrw" }[state.day];
+  const ap = state.airport === "xsp" ? "XSP" : "SIN";
+  return `<h2 class="col-head"><span>${title}</span><span class="col-suffix">${ap} · ${day}</span></h2>
+    <div class="col-labels" aria-hidden="true"><span>Time</span><span>Flight</span><span>${dir === "dep" ? "Destination" : "Origin"}</span><span>Term</span><span>${state.airport === "xsp" ? (dir === "dep" ? "Door" : "Belt") : "Gate"}</span><span class="l-gha">Handler</span><span class="l-rem">Remarks</span></div>`;
+}
+
+/** "··· 227 earlier flights ···" / "··· hide earlier flights ···" toggles. */
+const moreHTML = (hidden) => (hidden ? `<button class="more" data-act="earlier">··· ${hidden} earlier flight${hidden === 1 ? "" : "s"} ···</button>` : "");
+const lessHTML = () => (state.day === 0 && state.showEarlier && !state.q ? `<button class="more" data-act="later">··· Hide earlier flights ···</button>` : "");
 
 /** One board column (wide screens): heading, earlier-flights toggle, rows or an empty note. */
 function columnHTML(dir, title, data) {
@@ -937,12 +976,12 @@ function columnHTML(dir, title, data) {
     hidden = list.length - keep.length;
     list = keep;
   }
-  const more = hidden ? `<button class="more" data-act="earlier">Show ${hidden} earlier flight${hidden === 1 ? "" : "s"}</button>` : "";
-  const less = state.day === 0 && state.showEarlier && !state.q ? `<button class="more" data-act="later">Hide earlier flights</button>` : "";
+  const more = moreHTML(hidden);
+  const less = lessHTML();
   const body = list.length
     ? more + less + list.map((f) => rowHTML(f, dir)).join("")
     : more + `<p class="empty">${esc(noFlightsText())}</p>`;
-  return `<section class="board-col" aria-label="${title}"><h2 class="col-head">${title}</h2>${body}</section>`;
+  return `<section class="board-col" aria-label="${title}">${panelHeadHTML(dir, title)}${body}</section>`;
 }
 
 /** Empty-list text for the board on screen. */
@@ -988,11 +1027,11 @@ function renderBoard() {
     list = keep;
   }
 
-  const more = hidden ? `<button class="more" data-act="earlier">Show ${hidden} earlier flight${hidden === 1 ? "" : "s"}</button>` : "";
-  const less = state.day === 0 && state.showEarlier && !state.q ? `<button class="more" data-act="later">Hide earlier flights</button>` : "";
-  box.innerHTML = list.length
-    ? more + less + list.map((f) => rowHTML(f)).join("")
-    : more + `<p class="empty">${esc(noFlightsText())}</p>`;
+  const title = DIRS.find(([d]) => d === state.dir)[1];
+  const head = `<div class="board-col">${panelHeadHTML(state.dir, title)}`;
+  box.innerHTML = head + (list.length
+    ? moreHTML(hidden) + lessHTML() + list.map((f) => rowHTML(f)).join("")
+    : moreHTML(hidden) + `<p class="empty">${esc(noFlightsText())}</p>`) + "</div>";
 }
 
 /** Saved view: the selected day's starred flights, departures and arrivals together. */
@@ -1004,13 +1043,13 @@ function renderSaved(data, box) {
     box.innerHTML = `<div class="cols">${DIRS.map(([dir, title]) => {
       const s = sections.find((x) => x.dir === dir);
       const body = s ? s.list.map((f) => rowHTML(f, dir)).join("") : `<p class="empty">No saved ${title.toLowerCase()} on this day.</p>`;
-      return `<section class="board-col" aria-label="${title}"><h2 class="col-head">${title}</h2>${body}</section>`;
+      return `<section class="board-col" aria-label="${title}">${panelHeadHTML(dir, title)}${body}</section>`;
     }).join("")}</div>`;
     return;
   }
   if (sections.length) {
     box.innerHTML = sections.map((s) =>
-      `<h2 class="saved-head">${s.title}</h2>${s.list.map((f) => rowHTML(f, s.dir)).join("")}`).join("");
+      `<div class="board-col">${panelHeadHTML(s.dir, s.title)}${s.list.map((f) => rowHTML(f, s.dir)).join("")}</div>`).join("");
     return;
   }
   let msg;
@@ -1101,21 +1140,14 @@ function applyAirportUI() {
 }
 
 const AIRPORT_TEXT = {
-  sin: {
-    sub: "SIN · T1–T4",
-    intro: "Live departures and arrivals for Singapore Changi Airport, plus a live plane tracker.",
-  },
-  xsp: {
-    sub: "XSP · Seletar",
-    intro: "Live departures and arrivals for Seletar Airport, plus a live plane tracker.",
-  },
+  sin: { sub: "Singapore Changi · Terminals 1–4" },
+  xsp: { sub: "Singapore Seletar · XSP" },
 };
 
-/** Header line under the logo and the Board intro: follow the Board's airport (Tracker keeps Changi's). */
+/** Header line under the logo: follows the Board's airport (Tracker keeps Changi's). */
 function renderAirportText() {
   const t = AIRPORT_TEXT[state.view === "board" && state.airport === "xsp" ? "xsp" : "sin"];
   $(".brand-sub").textContent = t.sub;
-  $(".intro").textContent = t.intro;
 }
 
 /** Changi <-> Seletar on the Board tab. Seletar has no terminals: a T1-T4 filter resets to All. */
@@ -2103,7 +2135,27 @@ function show(view) {
   }
 }
 
+// ---------------------------------------------------------------- header clock
+
+const fmtClockTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Singapore", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const fmtClockDate = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Singapore", weekday: "short", day: "numeric", month: "short" });
+
+/** Header clock, Singapore time ("13:01" over "SAT 14 NOV · SGT"). Purely visual. */
+function startClock() {
+  const t = $("#clock-time"), d = $("#clock-date");
+  if (!t || !d) return;
+  const tick = () => {
+    const now = new Date();
+    t.textContent = fmtClockTime.format(now);
+    const p = Object.fromEntries(fmtClockDate.formatToParts(now).map((x) => [x.type, x.value]));
+    d.textContent = `${p.weekday} ${p.day} ${p.month} · SGT`.toUpperCase();
+  };
+  tick();
+  setInterval(tick, 1000);
+}
+
 function init() {
+  try { startClock(); } catch { /* the clock never blocks the board */ }
   bindBoard();
   $$(".tab").forEach((t) => t.addEventListener("click", () => show(t.dataset.view)));
   $(".card-close").addEventListener("click", () => select(null));

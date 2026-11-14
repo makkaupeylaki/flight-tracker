@@ -18,11 +18,11 @@
 //   app.js:    index.html (<script src="/app.js?v=...">) and SHELL_FILES below
 // The cache key in SHELL_FILES must match the URL the pages request.
 
-const VERSION = "v3";
+const VERSION = "v4";
 const SHELL = `flightlah-shell-${VERSION}`;
 const DATA = `flightlah-data-${VERSION}`;
 const SHELL_FILES = [
-  "./", "index.html", "/app.js?v=45965b9", "/style.css?v=331d588", "config.js", "manifest.webmanifest",
+  "./", "index.html", "/app.js?v=526fba0", "/style.css?v=d7f7236", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png",
 ];
 // Extra pages, cached best-effort so a missing one never blocks the install.

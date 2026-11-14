@@ -39,50 +39,72 @@
       sessionStorage.setItem("flightlah-splash", "1");
     } catch (e) { /* storage blocked: no splash */ }
   </script>
-  <link rel="stylesheet" href="/style.css?v=331d588">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/style.css?v=d7f7236">
 </head>
 <body>
   <div id="splash" aria-hidden="true"><span class="splash-mark">flightlah</span></div>
   <header class="top">
     <div class="brand">
-      <span class="brand-name">flightlah</span>
-      <span class="brand-sub">SIN · T1–T4</span>
+      <span class="brand-tile" aria-hidden="true"><svg viewBox="0 0 32 32"><path fill="currentColor" d="M16 4c1 0 1.6 1 1.6 2.4V13l9.4 5.4v2.4l-9.4-2.9v5.6l2.6 2v1.9L16 26.2l-4.2 1.2v-1.9l2.6-2v-5.6L5 20.8v-2.4l9.4-5.4V6.4C14.4 5 15 4 16 4z"/></svg></span>
+      <span class="brand-text">
+        <span class="brand-name">flightlah</span>
+        <span class="brand-sub">SINGAPORE CHANGI · TERMINALS 1–4</span>
+      </span>
     </div>
     <nav class="tabs" role="tablist" aria-label="View">
       <button class="tab" role="tab" id="tab-board" aria-controls="view-board" aria-selected="true" data-view="board">Board</button>
       <button class="tab" role="tab" id="tab-tracker" aria-controls="view-tracker" aria-selected="false" data-view="tracker">Tracker</button>
     </nav>
+    <div class="clock" aria-hidden="true">
+      <span id="clock-time" class="clock-time">--:--</span>
+      <span id="clock-date" class="clock-date">SGT</span>
+    </div>
   </header>
 
   <main>
     <section id="view-board" class="view" role="tabpanel" aria-labelledby="tab-board">
-      <p class="intro">Live departures and arrivals for Singapore Changi Airport, plus a live plane tracker.</p>
       <div class="controls">
-        <div class="row">
-          <div class="seg seg-airport" role="group" aria-label="Airport">
-            <button data-airport="sin" aria-pressed="true">Changi</button>
-            <button data-airport="xsp" aria-pressed="false">Seletar</button>
+        <div class="row row-segs">
+          <div class="ctl">
+            <span class="ctl-label" aria-hidden="true">Airport</span>
+            <div class="seg seg-airport" role="group" aria-label="Airport">
+              <button data-airport="sin" aria-pressed="true">Changi</button>
+              <button data-airport="xsp" aria-pressed="false">Seletar</button>
+            </div>
           </div>
-          <div class="seg" role="group" aria-label="Direction">
-            <button data-dir="dep" aria-pressed="true">Departures</button>
-            <button data-dir="arr" aria-pressed="false">Arrivals</button>
+          <div class="ctl ctl-day">
+            <span class="ctl-label" aria-hidden="true">Day</span>
+            <div class="seg seg-date" role="group" aria-label="Date">
+              <button data-day="-1" aria-pressed="false">Yday</button>
+              <button data-day="0" aria-pressed="true">Today</button>
+              <button data-day="1" aria-pressed="false">Tmrw</button>
+            </div>
           </div>
-          <div class="seg seg-date" role="group" aria-label="Date">
-            <button data-day="-1" aria-pressed="false">Yday</button>
-            <button data-day="0" aria-pressed="true">Today</button>
-            <button data-day="1" aria-pressed="false">Tmrw</button>
+          <div class="ctl ctl-dir">
+            <span class="ctl-label" aria-hidden="true">Dir</span>
+            <div class="seg seg-dir" role="group" aria-label="Direction">
+              <button data-dir="dep" aria-pressed="true" aria-label="Departures">Dep</button>
+              <button data-dir="arr" aria-pressed="false" aria-label="Arrivals">Arr</button>
+            </div>
           </div>
+          <input id="search" class="search" type="search" placeholder="Search city, airline or flight" autocomplete="off" spellcheck="false" aria-label="Search flights">
         </div>
-        <input id="search" class="search" type="search" placeholder="Search city, airline or flight" autocomplete="off" spellcheck="false" aria-label="Search flights">
         <div class="row row-chips">
-          <div class="chips" role="group" aria-label="Terminal">
-            <button data-term="all" aria-pressed="true">All</button>
-            <button data-term="1" aria-pressed="false">T1</button>
-            <button data-term="2" aria-pressed="false">T2</button>
-            <button data-term="3" aria-pressed="false">T3</button>
-            <button data-term="4" aria-pressed="false">T4</button>
+          <div class="ctl ctl-term">
+            <span class="ctl-label" aria-hidden="true">Term</span>
+            <div class="chips" role="group" aria-label="Terminal">
+              <button data-term="all" aria-pressed="true">All</button>
+              <button data-term="1" aria-pressed="false">T1</button>
+              <button data-term="2" aria-pressed="false">T2</button>
+              <button data-term="3" aria-pressed="false">T3</button>
+              <button data-term="4" aria-pressed="false">T4</button>
+            </div>
           </div>
           <div class="refresh-group">
+            <span class="live-dot" aria-hidden="true"></span>
             <p id="updated" class="updated" aria-live="polite"></p>
             <button id="refresh" class="refresh-btn" type="button" aria-label="Refresh flights" title="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           </div>
@@ -95,13 +117,6 @@
         <p class="empty">Loading flights…</p>
       </div>
 
-      <footer class="foot">
-        Flight data: Changi Airport (<a href="https://www.changiairport.com" rel="noopener" target="_blank">changiairport.com</a>)
-        and Seletar Airport (<a href="https://www.seletarairport.com" rel="noopener" target="_blank">seletarairport.com</a>).
-        Aircraft positions: <a href="https://adsb.lol" rel="noopener" target="_blank">adsb.lol</a> community ADS-B feed
-        (backup: <a href="https://airplanes.live" rel="noopener" target="_blank">airplanes.live</a>).
-        Unofficial app.
-      </footer>
     </section>
 
     <section id="view-tracker" class="view" role="tabpanel" aria-labelledby="tab-tracker" hidden>
@@ -125,10 +140,14 @@
     </section>
   </main>
 
-  <p class="credit">LUQ TECH. <a class="credit-link" href="/about">About &amp; FAQ</a></p>
+  <footer class="foot">
+    <p class="foot-data">Data: <a href="https://www.changiairport.com" rel="noopener" target="_blank">changiairport.com</a> · <a href="https://www.seletarairport.com" rel="noopener" target="_blank">seletarairport.com</a> · <a href="https://adsb.lol" rel="noopener" target="_blank">adsb.lol</a> — unofficial</p>
+    <p class="credit">LUQ TECH.</p>
+    <a class="credit-link" href="/about">About &amp; FAQ</a>
+  </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous" defer></script>
   <script src="config.js"></script>
-  <script src="/app.js?v=45965b9" defer></script>
+  <script src="/app.js?v=526fba0" defer></script>
 </body>
 </html>
