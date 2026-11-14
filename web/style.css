@@ -210,7 +210,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 
 /* ------------------------------------------------------------ board
    Desktop (641px+): a FIDS table per panel. Columns:
-   TIME | FLIGHT | DESTINATION | TERM | GATE | HANDLER | REMARKS, plus the star in the
+   TIME | FLIGHT | DESTINATION | TERM | GATE | REMARKS, plus the star in the
    row's right padding. Phones (640px and below): TIME | main (2 lines) | REMARKS. */
 .board { padding: 0 0 8px; font-family: var(--mono); }
 .empty { color: var(--dim); text-align: center; padding: 48px 16px; margin: 0; font-size: 12px; letter-spacing: 0.08em; }
@@ -225,8 +225,10 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 .col-suffix { color: var(--faint); font-size: 9px; font-weight: 400; letter-spacing: 0.22em; }
 .col-labels, .f-row {
   display: grid; column-gap: 10px;
-  grid-template-columns: 64px 84px minmax(0, 1fr) 96px 72px 76px 132px;
+  grid-template-columns: 64px 84px minmax(0, 1fr) 96px 72px 132px;
 }
+/* No HANDLER column: the ground handler is in the expanded detail (and the phone sub-line). */
+.col-labels .l-gha, .f-row > .f-gha { display: none; }
 .col-labels {
   padding: 0 26px 7px 14px; border-bottom: 1px solid var(--line);
   color: var(--faint); font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
@@ -398,14 +400,9 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 .kv dd { margin: 3px 0 0; font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .kv dd small { color: var(--dim); font-size: 11px; }
 
-/* Desktop below the 2-panel width: one panel (DEP/ARR strip shown). Narrow desktops
-   (641-899px) also drop the HANDLER column; it stays in the expanded detail. */
+/* Desktop below the 2-panel width: one panel (DEP/ARR strip shown). */
 @media (min-width: 641px) and (max-width: 1379px) {
   .ctl-dir { display: flex; }
-}
-@media (min-width: 641px) and (max-width: 899px) {
-  .col-labels, .f-row { grid-template-columns: 64px 84px minmax(0, 1fr) 96px 72px 132px; }
-  .col-labels .l-gha, .f-row > .f-gha { display: none; }
 }
 
 /* ------------------------------------------------------------ phones (640px and below) */

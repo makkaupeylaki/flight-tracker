@@ -22,7 +22,7 @@ const VERSION = "v4";
 const SHELL = `flightlah-shell-${VERSION}`;
 const DATA = `flightlah-data-${VERSION}`;
 const SHELL_FILES = [
-  "./", "index.html", "/app.js?v=ef0ad9b", "/style.css?v=36dff9a", "config.js", "manifest.webmanifest",
+  "./", "index.html", "/app.js?v=ef0ad9b", "/style.css?v=ea9ef0b", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png",
 ];
 // Extra pages, cached best-effort so a missing one never blocks the install.
