@@ -63,11 +63,11 @@ function lockPage(error) {
   <meta property="og:title" content="flightlah">
   <meta property="og:description" content="Live departures and arrivals for Singapore Changi Airport, plus a live plane tracker.">
   <meta property="og:url" content="https://flightlah.com/">
-  <meta property="og:image" content="https://flightlah.com/og.png?v=3">
+  <meta property="og:image" content="https://flightlah.com/og.png?v=4">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="flightlah">
   <meta name="twitter:description" content="Live departures and arrivals for Singapore Changi Airport, plus a live plane tracker.">
-  <meta name="twitter:image" content="https://flightlah.com/og.png?v=3">
+  <meta name="twitter:image" content="https://flightlah.com/og.png?v=4">
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; }
