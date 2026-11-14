@@ -66,15 +66,15 @@ a { color: var(--dim); }
   border-bottom: 1px solid var(--line);
   font-family: var(--mono);
 }
-.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand { flex: none; display: flex; align-items: center; gap: 10px; }
 .brand-tile {
   flex: none; display: grid; place-items: center; width: 30px; height: 30px;
   border-radius: 7px; background: #070a0e; border: 1px solid var(--line); color: var(--amber);
 }
 .brand-tile svg { width: 20px; height: 20px; }
-.brand-text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.2; }
 .brand-name { color: var(--amber); font-size: 19px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
-.brand-sub { color: var(--faint); font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-sub { color: var(--faint); font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; white-space: nowrap; } /* short fixed text: never truncated */
 
 .tabs { display: flex; gap: 22px; align-self: stretch; }
 .tab {
@@ -85,7 +85,7 @@ a { color: var(--dim); }
 .tab:hover { color: var(--white); }
 .tab[aria-selected="true"] { color: var(--white); box-shadow: inset 0 -2px 0 var(--amber); }
 
-.clock { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; white-space: nowrap; }
+.clock { flex: none; margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; white-space: nowrap; }
 .clock-time { color: var(--amber); font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .clock-date { color: var(--faint); font-size: 9px; letter-spacing: 0.26em; }
 
@@ -269,6 +269,8 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
+/* Screen-reader text inside rows: hidden by clipping, not positioning (1px, inside the dot). */
+.f-row .sr-only { position: static; display: block; margin: 0; }
 .flight.live .track-btn { background: var(--amber); color: #101418; }
 
 .f-time { color: var(--amber); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -409,11 +411,10 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 /* ------------------------------------------------------------ phones (640px and below) */
 @media (max-width: 640px) {
   .top { flex-wrap: wrap; gap: 10px 16px; padding: calc(12px + env(safe-area-inset-top)) 16px 0; }
-  /* Row 1: brand (room for the full subline). Row 2: tabs left, clock right. */
-  .brand { flex: 1 1 100%; }
-  .tabs { flex: 1 1 auto; gap: 22px; }
+  /* Row 1: brand left, clock right (both fixed width, so they never meet). Row 2: tabs. */
+  .clock { order: 2; }
+  .tabs { order: 3; flex: 1 1 100%; gap: 22px; }
   .tab { padding: 8px 0 9px; }
-  .clock { padding-bottom: 6px; }
 
   .controls { padding: 12px 16px 8px; gap: 10px; }
   .row { gap: 10px 14px; }
@@ -426,33 +427,48 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
   .refresh-group { margin-left: auto; }
   .controls > .chips-wing { padding-left: 0; margin-top: -4px; }
 
+  /* Phone rows: plain grid tracks, nothing positioned. Row 1: TIME | FLIGHT | CITY |
+     REMARKS | star. Row 2: the sub-line under FLIGHT + CITY (row 3: gate-changed note).
+     Only the city may shrink (and ellipsize). */
   .col-head, .col-labels { display: none; }
   .f-row {
-    grid-template-columns: 46px minmax(0, 1fr) auto; column-gap: 10px;
-    align-items: start; padding: 10px 26px 10px 16px;
+    grid-template-columns: 56px minmax(72px, max-content) minmax(0, 1fr) auto 22px;
+    column-gap: 8px; row-gap: 3px; align-items: baseline; padding: 10px 6px 10px 16px;
   }
   .f-row > .f-term, .f-row > .f-gate, .f-row > .f-gha { display: none; }
-  .f-main { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
-  .f-line1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
-  .f-flight { display: block; flex: none; }
-  .f-time { font-size: 13px; line-height: 17px; }
-  .f-fn { line-height: 17px; }
+  .f-time { grid-column: 1; grid-row: 1; font-size: 13px; line-height: 17px; white-space: nowrap; }
+  .f-fn { grid-column: 2; grid-row: 1; line-height: 17px; white-space: nowrap; } /* .f-flight is display: contents */
   .f-city {
-    display: block; flex: 1 1 auto; min-width: 0; line-height: 17px; letter-spacing: 0.06em;
+    grid-column: 3; grid-row: 1; display: block; line-height: 17px; letter-spacing: 0.06em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; -webkit-line-clamp: none;
   }
+  .f-status { grid-column: 4; grid-row: 1; align-self: start; padding-top: 3px; }
+  /* A "Delayed"/"Early" tag stacks under the remark, so the sub-line stops before it;
+     otherwise the sub-line can run under the remark too. */
+  .f-row:has(.delay-tag) > .f-status { grid-row: 1 / span 2; }
+  .f-row:not(:has(.delay-tag)) > .f-main > .f-sub, .f-row:not(:has(.delay-tag)) > .f-main > .f-note { grid-column: 2 / 5; }
+  .pill { font-size: 10px; letter-spacing: 0.1em; overflow: visible; }
+  .delay-tag { font-size: 9px; }
+  .fav-btn {
+    grid-column: 5; grid-row: 1 / span 2; align-self: start; justify-self: end;
+    position: static; transform: none; width: 22px; height: 22px; margin-top: -2px;
+  }
   .f-sub {
-    display: block; color: var(--faint); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    grid-column: 2 / 4; grid-row: 2; display: block; min-width: 0;
+    color: var(--faint); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
     line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .f-sub .t1, .f-sub .t2, .f-sub .t3, .f-sub .t4, .f-sub .tbc { color: inherit; }
+  /* Terminal colour-coding: square + "T2 SOUTH" in the terminal's colour; the rest stays faint. */
+  .f-sub .t1, .f-sub .t2, .f-sub .t3, .f-sub .t4 { display: inline-flex; align-items: center; gap: 5px; }
+  .f-sub :is(.t1, .t2, .t3, .t4)::before { content: ""; width: 7px; height: 7px; background: currentColor; }
+  .f-sub .tbc { color: var(--faint); }
   .f-sub-gate.changed { color: var(--amber); }
-  .f-note { display: block; color: var(--amber); font-size: 10px; letter-spacing: 0.08em; line-height: 1.3; }
-  .f-status { max-width: 30vw; padding-top: 2px; }
-  .pill { font-size: 10px; letter-spacing: 0.1em; }
-  .delay-tag { font-size: 9px; }
-  .fav-btn { top: 19px; }
-  .flight.live .live-tag { top: 19px; left: 5px; }
+  .f-note { grid-column: 2 / 4; grid-row: 3; display: block; min-width: 0; color: var(--amber); font-size: 10px; letter-spacing: 0.08em; line-height: 1.3; }
+  /* Live dot: in the TIME track, after the time (the 56px track has room for both). */
+  .flight.live .live-tag {
+    grid-column: 1; grid-row: 1; justify-self: end; align-self: center;
+    position: static; margin: 0;
+  }
   .f-detail, .f-actions { padding-left: 16px; padding-right: 16px; }
 }
 

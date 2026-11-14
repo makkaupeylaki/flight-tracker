@@ -1140,8 +1140,8 @@ function applyAirportUI() {
 }
 
 const AIRPORT_TEXT = {
-  sin: { sub: "Singapore Changi · Terminals 1–4" },
-  xsp: { sub: "Singapore Seletar · XSP" },
+  sin: { sub: "Changi Airport" },
+  xsp: { sub: "Seletar Airport" },
 };
 
 /** Header line under the logo: follows the Board's airport (Tracker keeps Changi's). */
