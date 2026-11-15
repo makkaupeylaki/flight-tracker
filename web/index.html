@@ -20,11 +20,15 @@
   <meta property="og:title" content="flightlah">
   <meta property="og:description" content="Live departures, arrivals and aircraft around Singapore Changi Airport, terminals 1–4.">
   <meta property="og:url" content="https://flightlah.com/">
-  <meta property="og:image" content="https://flightlah.com/og.png?v=4">
+  <meta property="og:image" content="https://flightlah.com/og.png?v=5">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="flightlah">
   <meta name="twitter:description" content="Live departures, arrivals and aircraft around Singapore Changi Airport, terminals 1–4.">
-  <meta name="twitter:image" content="https://flightlah.com/og.png?v=4">
+  <meta name="twitter:image" content="https://flightlah.com/og.png?v=5">
+  <script>
+    // Theme before first paint (no flash): Legacy unless Classic was chosen on this device.
+    (function(){try{var t=localStorage.getItem('flightlah-theme');document.documentElement.dataset.theme=(t==='classic')?'classic':'legacy';}catch(e){document.documentElement.dataset.theme='legacy';}})();
+  </script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous">
   <script>
     // Startup splash: decided before first paint. Fresh app open only (sessionStorage
@@ -40,7 +44,7 @@
     } catch (e) { /* storage blocked: no splash */ }
   </script>
   <link rel="preload" href="/fonts/ibm-plex-mono-latin-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/style.css?v=b42618d">
+  <link rel="stylesheet" href="/style.css?v=7a20726">
 </head>
 <body>
   <div id="splash" aria-hidden="true"><span class="splash-mark">flightlah</span></div>
@@ -59,6 +63,10 @@
     <div class="clock" aria-hidden="true">
       <span id="clock-time" class="clock-time">--:--</span>
       <span id="clock-date" class="clock-date">SGT</span>
+    </div>
+    <div class="seg seg-theme seg-theme-top" role="group" aria-label="Theme">
+      <button type="button" data-theme-set="legacy" aria-pressed="false">Legacy</button>
+      <button type="button" data-theme-set="classic" aria-pressed="false">Classic</button>
     </div>
   </header>
 
@@ -108,6 +116,12 @@
           </div>
         </div>
         <div id="wings" class="chips chips-wing" role="group" aria-label="Wing" hidden></div>
+        <div class="row row-theme">
+          <div class="seg seg-theme" role="group" aria-label="Theme">
+            <button type="button" data-theme-set="legacy" aria-pressed="false">Legacy</button>
+            <button type="button" data-theme-set="classic" aria-pressed="false">Classic</button>
+          </div>
+        </div>
         <p id="xsp-note" class="xsp-note" hidden>Seletar Airport (XSP) · no terminals · door shown for departures, belt for arrivals</p>
       </div>
 
@@ -145,6 +159,7 @@
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous" defer></script>
+  <script src="/theme.js?v=0dcc0d0" defer></script>
   <script src="config.js"></script>
   <script src="/app.js?v=ef0ad9b" defer></script>
 </body>

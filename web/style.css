@@ -17,7 +17,41 @@
 }
 
 :root {
-  /* FIDS design tokens */
+  /* ---- Theme tokens: Legacy (dark green + lime, the default). Every colour that differs
+     between the themes lives here and in the Classic block below; nothing theme-specific is
+     hard-coded elsewhere. --amber keeps its name: it is lime in Legacy. */
+  --bg: #0a100e;
+  --panel: #101915;
+  --line: #27342e;
+  --line-soft: #1b2620;
+  --amber: #a3e61a;        /* lime: brand, times, active states */
+  --amber-dim: #7ba82a;
+  --white: #f3f6f4;
+  --dim: #9daaa3;
+  --faint: #68766d;
+  --red: #ff8f7a;          /* softer coral for delayed/cancelled */
+  --green: #46c07a;
+  --t1: #7ba7c7;           /* dusty blue */
+  --t2: #a693c9;           /* muted violet */
+  --t3: #c488a6;           /* dusty pink */
+  --t4: #79b392;           /* sage */
+  --accent-ink: #0a100e;   /* text/icons sitting on --amber */
+  --brand-tile-bg: #050907;
+  /* Derived per theme: rgb triplets for rgba() glows/tints, and a few surfaces. */
+  --amber-rgb: 163, 230, 26;
+  --green-rgb: 70, 192, 122;
+  --red-rgb: 255, 143, 122;
+  --dim-rgb: 157, 170, 163;
+  --red-deep: #d9654f;     /* the darker step of the Standby pulse */
+  --row-hover: #14201b;
+  --surface-2: #17231e;
+  --map-bg: #0b120f;
+  --overlay-rgb: 10, 16, 14; /* map hint / attribution backdrops */
+  --emerg-rgb: 255, 143, 122; /* Tracker emergency glow */
+  --home-ring-rgb: 163, 230, 26; /* Changi home dot ring */
+}
+[data-theme="classic"] {
+  /* ---- Classic (dark navy + amber): the site's look before the toggle, value for value. */
   --bg: #0a0e13;
   --panel: #0d1218;
   --line: #1d242c;
@@ -33,22 +67,37 @@
   --t2: #9b7ede;
   --t3: #e06fa8;
   --t4: #3fae7a;
+  --accent-ink: #101418;
+  --brand-tile-bg: #070a0e;
+  --amber-rgb: 255, 176, 0;
+  --green-rgb: 55, 200, 113;
+  --red-rgb: 255, 93, 77;
+  --dim-rgb: 139, 149, 161;
+  --red-deep: #c9383d;
+  --row-hover: #10161d;
+  --surface-2: #131a22;
+  --map-bg: #0e1013;
+  --overlay-rgb: 11, 12, 14;
+  --emerg-rgb: 255, 90, 95;
+  --home-ring-rgb: 255, 210, 63;
+}
+:root {
+  /* ---- Theme-independent tokens. */
   --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
 
-  /* Older names, kept as aliases so the Tracker, detail and About styles follow the tokens. */
+  /* Older names, kept as aliases so the Tracker, detail and About styles follow the theme. */
   --surface: var(--panel);
-  --surface-2: #131a22;
   --text: var(--white);
   --muted: var(--dim);
   --accent: var(--amber);
   --ok: var(--green);
-  --ok-bg: rgba(55, 200, 113, 0.12);
-  --warn: #ff9f1c;
+  --ok-bg: rgba(var(--green-rgb), 0.12);
+  --warn: #ff9f1c; /* Tracker "signal lost" note: orange in both themes */
   --warn-bg: rgba(255, 159, 28, 0.14);
   --done: var(--dim);
-  --done-bg: rgba(139, 149, 161, 0.12);
+  --done-bg: rgba(var(--dim-rgb), 0.12);
   --bad: var(--red);
-  --bad-bg: rgba(255, 93, 77, 0.14);
+  --bad-bg: rgba(var(--red-rgb), 0.14);
   --seletar: #7ee787;
   --cargo: #4cc9f0; /* Tracker freighters: sky cyan, apart from amber/white/red/green on the map */
 
@@ -87,7 +136,7 @@ a { color: var(--dim); }
 .brand { flex: none; display: flex; align-items: center; gap: 10px; }
 .brand-tile {
   flex: none; display: grid; place-items: center; width: 30px; height: 30px;
-  border-radius: 7px; background: #070a0e; border: 1px solid var(--line); color: var(--amber);
+  border-radius: 7px; background: var(--brand-tile-bg); border: 1px solid var(--line); color: var(--amber);
 }
 .brand-tile svg { width: 20px; height: 20px; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.2; }
@@ -107,6 +156,17 @@ a { color: var(--dim); }
 .clock-time { color: var(--amber); font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .clock-date { color: var(--faint); font-size: 9px; letter-spacing: 0.26em; }
 
+/* Theme toggle (Legacy | Classic): the same segmented strip as Airport/Day. The active
+   segment follows html[data-theme] (set before first paint), so it is right from the first
+   frame; theme.js keeps aria-pressed in step for screen readers. */
+.seg-theme-top { flex: none; }
+.controls > .row-theme { display: none; } /* phones only (below) */
+:root:not([data-theme="classic"]) .seg-theme [data-theme-set="legacy"],
+[data-theme="classic"] .seg-theme [data-theme-set="classic"] {
+  background: var(--amber); color: var(--accent-ink); font-weight: 600;
+}
+.about-page .back-link { margin-right: auto; }
+
 main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 .view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
@@ -125,7 +185,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button:hover { color: var(--white); }
-.seg button[aria-pressed="true"] { background: var(--amber); color: #101418; font-weight: 600; }
+.seg button[aria-pressed="true"] { background: var(--amber); color: var(--accent-ink); font-weight: 600; }
 
 .search {
   flex: 1 1 260px; min-width: 0; padding: 7px 12px; border-radius: 4px;
@@ -164,13 +224,13 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 .chips button.chip-standby[data-term="standby"],
 .chips button.chip-standby[data-term="standby"][aria-pressed="true"] {
   padding: 3px 8px; border-radius: 3px;
-  background: var(--bad); color: #101418; font-weight: 650;
+  background: var(--bad); color: var(--accent-ink); font-weight: 650;
   animation: sq-pulse-bg 1.5s ease-in-out infinite;
 }
 .chips button.chip-standby[data-term="standby"][aria-pressed="true"] { outline: 2px solid var(--white); outline-offset: 2px; }
 @keyframes sq-pulse-bg {
-  0%, 100% { background-color: #ff5d4d; box-shadow: 0 0 0 0 rgba(255, 93, 77, 0.55); }
-  50% { background-color: #c9383d; box-shadow: 0 0 0 5px rgba(255, 93, 77, 0); }
+  0%, 100% { background-color: var(--red); box-shadow: 0 0 0 0 rgba(var(--red-rgb), 0.55); }
+  50% { background-color: var(--red-deep); box-shadow: 0 0 0 5px rgba(var(--red-rgb), 0); }
 }
 
 /* Changi | Seletar. */
@@ -184,17 +244,17 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 .updated { margin: 0; color: var(--faint); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; text-align: right; }
 .live-dot {
   flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--green);
-  box-shadow: 0 0 6px rgba(55, 200, 113, 0.7); animation: dot-pulse 2s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(var(--green-rgb), 0.7); animation: dot-pulse 2s ease-in-out infinite;
 }
-.refresh-group.is-stale .live-dot { background: var(--amber); box-shadow: 0 0 6px rgba(255, 176, 0, 0.6); }
-@keyframes dot-pulse { 50% { opacity: 0.35; box-shadow: 0 0 2px rgba(55, 200, 113, 0.3); } }
+.refresh-group.is-stale .live-dot { background: var(--amber); box-shadow: 0 0 6px rgba(var(--amber-rgb), 0.6); }
+@keyframes dot-pulse { 50% { opacity: 0.35; box-shadow: 0 0 2px rgba(var(--green-rgb), 0.3); } }
 
 /* Auto-refresh: a soft ring around the icon, once. */
 .refresh-btn.pulse { animation: refresh-pulse 1.2s ease-out 1; }
 @keyframes refresh-pulse {
-  0% { color: var(--amber); box-shadow: 0 0 0 0 rgba(255, 176, 0, 0.35); }
-  60% { color: var(--amber); box-shadow: 0 0 0 8px rgba(255, 176, 0, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 176, 0, 0); }
+  0% { color: var(--amber); box-shadow: 0 0 0 0 rgba(var(--amber-rgb), 0.35); }
+  60% { color: var(--amber); box-shadow: 0 0 0 8px rgba(var(--amber-rgb), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--amber-rgb), 0); }
 }
 
 .map-note.map-loading { display: flex; align-items: center; gap: 8px; color: var(--text); top: 50%; transform: translate(-50%, -50%); }
@@ -265,8 +325,8 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
   position: relative; width: 100%; border: 0; background: transparent; text-align: left;
   align-items: center; padding: 9px 26px 9px 14px; cursor: pointer;
 }
-.f-row:hover { background: #10161d; }
-.flight.open .f-row { background: #10161d; }
+.f-row:hover { background: var(--row-hover); }
+.flight.open .f-row { background: var(--row-hover); }
 .f-row > span { min-width: 0; }
 
 /* Desktop: the main block's pieces become grid cells; the phone sub-line is hidden. */
@@ -282,8 +342,8 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
   animation: live-pulse 2s ease-out infinite;
 }
 @keyframes live-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(255, 176, 0, 0.55); }
-  70%, 100% { box-shadow: 0 0 0 6px rgba(255, 176, 0, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(var(--amber-rgb), 0.55); }
+  70%, 100% { box-shadow: 0 0 0 6px rgba(var(--amber-rgb), 0); }
 }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -291,7 +351,7 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 }
 /* Screen-reader text inside rows: hidden by clipping, not positioning (1px, inside the dot). */
 .f-row .sr-only { position: static; display: block; margin: 0; }
-.flight.live .track-btn { background: var(--amber); color: #101418; }
+.flight.live .track-btn { background: var(--amber); color: var(--accent-ink); }
 
 .f-time { color: var(--amber); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .f-fn { color: var(--white); font-size: 13px; font-weight: 700; white-space: nowrap; }
@@ -361,8 +421,8 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 /* Opened from a share link: a brief highlight. */
 .flight.flash .f-row { animation: flash 2.6s ease-out 1; }
 @keyframes flash {
-  0%, 35% { background: rgba(255, 176, 0, 0.14); box-shadow: inset 3px 0 0 var(--amber); }
-  100% { background: #10161d; box-shadow: inset 3px 0 0 transparent; }
+  0%, 35% { background: rgba(var(--amber-rgb), 0.14); box-shadow: inset 3px 0 0 var(--amber); }
+  100% { background: var(--row-hover); box-shadow: inset 3px 0 0 transparent; }
 }
 
 /* Standby view: aircraft broadcasting an emergency squawk. */
@@ -407,11 +467,11 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
 .f-detail {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px 16px;
   margin: 0; padding: 6px 26px 16px calc(14px + 64px + 10px);
-  background: #10161d;
+  background: var(--row-hover);
 }
 .f-actions {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 0 26px 16px calc(14px + 64px + 10px); background: #10161d;
+  padding: 0 26px 16px calc(14px + 64px + 10px); background: var(--row-hover);
 }
 .kv { min-width: 0; }
 .kv dt { color: var(--faint); font-size: 9px; text-transform: uppercase; letter-spacing: 0.22em; }
@@ -486,13 +546,21 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
     position: static; margin: 0;
   }
   .f-detail, .f-actions { padding-left: 16px; padding-right: 16px; }
+  /* Theme toggle on phones: its own small row at the end of the Board controls; on the
+     Tracker (no controls) it sits at the right of the tabs row; on About, in the header. */
+  .seg-theme-top { display: none; }
+  .controls > .row-theme { display: flex; justify-content: flex-end; }
+  .seg-theme button { padding: 4px 9px; font-size: 10px; }
+  body.tracking .tabs { flex: 1 1 auto; }
+  body.tracking .seg-theme-top { display: inline-flex; order: 4; align-self: center; }
+  .about-page .seg-theme-top { display: inline-flex; }
 }
 
 .track-btn {
   border: 1px solid var(--amber); background: transparent; color: var(--amber);
   border-radius: 4px; padding: 6px 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
 }
-.track-btn:hover { background: rgba(255, 176, 0, 0.1); }
+.track-btn:hover { background: rgba(var(--amber-rgb), 0.1); }
 
 /* ------------------------------------------------------------ footer */
 .foot {
@@ -550,16 +618,16 @@ body > .credit { flex: none; margin: 0; padding: 10px 16px calc(14px + env(safe-
 
 .map-hint {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 900;
-  padding: 8px 14px; border-radius: 999px; background: rgba(11, 12, 14, 0.85); color: var(--text);
+  padding: 8px 14px; border-radius: 999px; background: rgba(var(--overlay-rgb), 0.85); color: var(--text);
   font-size: 13px; pointer-events: none; opacity: 0; transition: opacity 0.2s ease;
 }
 .map-hint.show { opacity: 1; }
-.map { position: absolute; inset: 0; background: #0e1013; }
+.map { position: absolute; inset: 0; background: var(--map-bg); }
 
 /* Darken OSM tiles to match the board (the tiles themselves are standard OSM). */
 .map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.4); }
-.leaflet-container { font: 12px var(--sans); background: #0e1013; }
-.leaflet-control-attribution { background: rgba(11, 12, 14, 0.7) !important; color: var(--faint) !important; }
+.leaflet-container { font: 12px var(--sans); background: var(--map-bg); }
+.leaflet-control-attribution { background: rgba(var(--overlay-rgb), 0.7) !important; color: var(--faint) !important; }
 .leaflet-control-attribution a { color: var(--muted) !important; }
 .leaflet-bar a { background: var(--surface) !important; color: var(--text) !important; border-color: var(--line) !important; }
 
@@ -579,15 +647,15 @@ body > .credit { flex: none; margin: 0; padding: 10px 16px calc(14px + env(safe-
   animation: sq-pulse-bg 1.5s ease-in-out infinite;
 }
 @keyframes sq-glow {
-  0%, 100% { box-shadow: 0 0 6px 2px rgba(255, 90, 95, 0.45); background: rgba(255, 90, 95, 0.12); }
-  50% { box-shadow: 0 0 16px 7px rgba(255, 90, 95, 0.85); background: rgba(255, 90, 95, 0.3); }
+  0%, 100% { box-shadow: 0 0 6px 2px rgba(var(--emerg-rgb), 0.45); background: rgba(var(--emerg-rgb), 0.12); }
+  50% { box-shadow: 0 0 16px 7px rgba(var(--emerg-rgb), 0.85); background: rgba(var(--emerg-rgb), 0.3); }
 }
 .c-emerg {
   margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--bad-bg); color: var(--text);
   font-size: 13px; line-height: 1.45;
 }
 .c-emerg strong { color: var(--bad); font-size: 12px; letter-spacing: 0.04em; }
-.home-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(255, 210, 63, 0.2); }
+.home-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(var(--home-ring-rgb), 0.2); }
 
 /* Tracker header: Changi / Seletar, centred over the top of the map. */
 .trk-head {
@@ -749,7 +817,7 @@ body > .credit { flex: none; margin: 0; padding: 10px 16px calc(14px + env(safe-
 @keyframes pill-flip-in { from { transform: perspective(200px) rotateX(-90deg); } }
 /* The changed row: a soft highlight that fades out (also with reduced motion). */
 .flight.just-changed .f-row { animation: row-changed 1.5s ease-out backwards; }
-@keyframes row-changed { from { background-color: rgba(255, 176, 0, 0.14); } to { background-color: transparent; } }
+@keyframes row-changed { from { background-color: rgba(var(--amber-rgb), 0.14); } to { background-color: transparent; } }
 
 /* ------------------------------------------------------------ startup splash
    Fresh app open only (html.splash is set by the inline script in index.html).
@@ -795,12 +863,12 @@ body > .credit { flex: none; margin: 0; padding: 10px 16px calc(14px + env(safe-
   .refresh-btn.spinning svg { animation-duration: 2.4s; }
   .refresh-btn.pulse { animation: none; color: var(--accent); }
   .toast { transition: none; }
-  .flight.flash .f-row { animation: none; background: rgba(255, 176, 0, 0.14); }
+  .flight.flash .f-row { animation: none; background: rgba(var(--amber-rgb), 0.14); }
   .dot-spin { animation-duration: 2.4s; }
   /* Possible emergency: solid red, no pulse. */
   .chips button.chip-standby[data-term="standby"],
   .chips button.chip-standby[data-term="standby"][aria-pressed], .sq-label { animation: none; background: var(--bad); box-shadow: none; }
-  .plane.emerg { animation: none; box-shadow: 0 0 12px 5px rgba(255, 90, 95, 0.75); background: rgba(255, 90, 95, 0.25); }
+  .plane.emerg { animation: none; box-shadow: 0 0 12px 5px rgba(var(--emerg-rgb), 0.75); background: rgba(var(--emerg-rgb), 0.25); }
   /* Split-flap: no flips (app.js skips them too); the row highlight still fades. */
   .flap-p, .pill.pill-flip-out, .pill.pill-flip-in { animation: none; }
   /* FIDS remarks and the status dot: no blink, no pulse. */
