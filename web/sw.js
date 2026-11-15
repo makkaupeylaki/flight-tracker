@@ -19,7 +19,7 @@
 //   theme.js:  index.html and about.html (<script src="/theme.js?v=...">) and SHELL_FILES below
 // The cache key in SHELL_FILES must match the URL the pages request.
 
-const VERSION = "v6";
+const VERSION = "v7";
 const SHELL = `flightlah-shell-${VERSION}`;
 const DATA = `flightlah-data-${VERSION}`;
 const SHELL_FILES = [
