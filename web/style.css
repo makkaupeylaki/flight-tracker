@@ -160,7 +160,6 @@ a { color: var(--dim); }
    segment follows html[data-theme] (set before first paint), so it is right from the first
    frame; theme.js keeps aria-pressed in step for screen readers. */
 .seg-theme-top { flex: none; }
-.controls > .row-theme { display: none; } /* phones only (below) */
 :root:not([data-theme="classic"]) .seg-theme [data-theme-set="legacy"],
 [data-theme="classic"] .seg-theme [data-theme-set="classic"] {
   background: var(--amber); color: var(--accent-ink); font-weight: 600;
@@ -546,14 +545,11 @@ main { flex: 1; display: flex; flex-direction: column; width: 100%; }
     position: static; margin: 0;
   }
   .f-detail, .f-actions { padding-left: 16px; padding-right: 16px; }
-  /* Theme toggle on phones: its own small row at the end of the Board controls; on the
-     Tracker (no controls) it sits at the right of the tabs row; on About, in the header. */
-  .seg-theme-top { display: none; }
-  .controls > .row-theme { display: flex; justify-content: flex-end; }
+  /* Theme toggle on phones: at the right end of the BOARD / TRACKER row (Board and
+     Tracker alike); on About, in the header. */
   .seg-theme button { padding: 4px 9px; font-size: 10px; }
-  body.tracking .tabs { flex: 1 1 auto; }
-  body.tracking .seg-theme-top { display: inline-flex; order: 4; align-self: center; }
-  .about-page .seg-theme-top { display: inline-flex; }
+  .tabs { flex: 1 1 auto; }
+  .seg-theme-top { order: 4; align-self: center; }
 }
 
 .track-btn {
