@@ -23,7 +23,7 @@ const VERSION = "v7";
 const SHELL = `flightlah-shell-${VERSION}`;
 const DATA = `flightlah-data-${VERSION}`;
 const SHELL_FILES = [
-  "./", "index.html", "/app.js?v=ef0ad9b", "/style.css?v=f244b69", "/theme.js?v=0dcc0d0", "config.js", "manifest.webmanifest",
+  "./", "index.html", "/app.js?v=ef0ad9b", "/style.css?v=4504321", "/theme.js?v=0dcc0d0", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png",
   "/fonts/ibm-plex-mono-latin-400.woff2", "/fonts/ibm-plex-mono-latin-500.woff2",
   "/fonts/ibm-plex-mono-latin-600.woff2", "/fonts/ibm-plex-mono-latin-700.woff2",
@@ -123,6 +123,9 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   if (url.pathname.endsWith("/api/board")) { e.respondWith(board(e)); return; }
   if (url.pathname.includes("/api/")) return; // traffic: live only
+  // Video (the footer Easter egg): straight to the network, never cached. Browsers fetch
+  // it in Range pieces (206), which the Cache API cannot store.
+  if (url.pathname.endsWith(".mp4") || req.headers.has("range")) return;
   if (url.origin === self.location.origin || LEAFLET.test(req.url)) { e.respondWith(shell(req)); return; }
   // Map tiles and anything else: not handled here.
 });

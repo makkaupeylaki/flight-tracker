@@ -873,3 +873,18 @@ body > .credit { flex: none; margin: 0; padding: 10px 16px calc(14px + env(safe-
   .splash #splash { display: none; }
   .splash .top, .splash .controls > * { animation: none; }
 }
+
+/* ------------------------------------------------------------ Easter egg (tap "LUQ TECH.") */
+#egg { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.egg {
+  position: fixed; inset: 0; z-index: 4000; display: grid; place-items: center;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.92);
+}
+.egg[hidden] { display: none; }
+.egg-video { display: block; max-width: 100%; max-height: 100%; background: #000; }
+.egg-close {
+  position: absolute; top: calc(10px + env(safe-area-inset-top)); right: 10px;
+  width: 36px; height: 36px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55); color: #fff; font: 22px/1 var(--mono); cursor: pointer;
+}
